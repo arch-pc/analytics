@@ -3,70 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Analytics Dashboard</title>
+    <title>Google Analytics Dashboard</title>
     <link rel="stylesheet" href="styles.css">
-    
-    <!-- External Libraries via CDN -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
-    <header class="main-header">
+    <header class="header">
         <h1>📊 Analytics Dashboard</h1>
-        <button id="exportPdfBtn" class="btn btn-primary">Exporteer naar PDF</button>
+        <button id="generate-pdf-btn">Exporteer naar PDF</button>
     </header>
 
-    <main class="main-content">
-        <!-- ACQUISITION -->
-        <section class="category-section">
-            <div class="category-header">
-                <h2>🎯 ACQUISITION</h2>
-                <input type="file" id="upload-ACQUISITION" accept=".csv" multiple style="display: none;">
-                <button class="btn btn-secondary upload-btn" data-category="ACQUISITION">
-                    📁 Upload CSV
-                </button>
-            </div>
-            <div id="datasets-ACQUISITION" class="datasets-grid"></div>
-        </section>
-
-        <!-- BEHAVIOR -->
-        <section class="category-section">
-            <div class="category-header">
-                <h2>👤 BEHAVIOR</h2>
-                <input type="file" id="upload-BEHAVIOR" accept=".csv" multiple style="display: none;">
-                <button class="btn btn-secondary upload-btn" data-category="BEHAVIOR">
-                    📁 Upload CSV
-                </button>
-            </div>
-            <div id="datasets-BEHAVIOR" class="datasets-grid"></div>
-        </section>
-
-        <!-- CONVERSION -->
-        <section class="category-section">
-            <div class="category-header">
-                <h2>💰 CONVERSION</h2>
-                <input type="file" id="upload-CONVERSION" accept=".csv" multiple style="display: none;">
-                <button class="btn btn-secondary upload-btn" data-category="CONVERSION">
-                    📁 Upload CSV
-                </button>
-            </div>
-            <div id="datasets-CONVERSION" class="datasets-grid"></div>
-        </section>
-
-        <!-- LOYALTY -->
-        <section class="category-section">
-            <div class="category-header">
-                <h2>❤️ LOYALTY</h2>
-                <input type="file" id="upload-LOYALTY" accept=".csv" multiple style="display: none;">
-                <button class="btn btn-secondary upload-btn" data-category="LOYALTY">
-                    📁 Upload CSV
-                </button>
-            </div>
-            <div id="datasets-LOYALTY" class="datasets-grid"></div>
-        </section>
-    </main>
+    <div id="app" class="dashboard-grid">
+        <section id="panel-acquisition" class="category-panel"></section>
+        <section id="panel-behaviour" class="category-panel"></section>
+        <section id="panel-conversion" class="category-panel"></section>
+        <section id="panel-loyalty" class="category-panel"></section>
+    </div>
 
     <script type="module" src="app.js"></script>
 </body>
