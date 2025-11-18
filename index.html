@@ -18,54 +18,55 @@
         <button id="exportPdfBtn" class="btn btn-primary">Exporteer naar PDF</button>
     </header>
 
-    <nav class="main-nav">
-        <button id="tabCsv" class="nav-btn active" data-tab="csv">CSV Datasets</button>
-        <button id="tabMarketing" class="nav-btn" data-tab="marketing">Marketing Dashboard</button>
-    </nav>
-
-    <!-- CSV Datasets Section -->
-    <section id="csvSection" class="section active">
-        <div class="section-header">
-            <h2>CSV Datasets</h2>
-            <div class="upload-area">
-                <input type="file" id="csvUpload" accept=".csv" multiple style="display: none;">
-                <button id="uploadBtn" class="btn btn-secondary">📁 Upload CSV</button>
+    <main class="main-content">
+        <!-- ACQUISITION -->
+        <section class="category-section">
+            <div class="category-header">
+                <h2>🎯 ACQUISITION</h2>
+                <input type="file" id="upload-ACQUISITION" accept=".csv" multiple style="display: none;">
+                <button class="btn btn-secondary upload-btn" data-category="ACQUISITION">
+                    📁 Upload CSV
+                </button>
             </div>
-        </div>
-        <div id="csvDatasetsContainer" class="datasets-container"></div>
-    </section>
+            <div id="datasets-ACQUISITION" class="datasets-grid"></div>
+        </section>
 
-    <!-- Marketing Dashboard Section -->
-    <section id="marketingSection" class="section">
-        <div class="section-header">
-            <h2>Marketing Dashboard</h2>
-            <div class="json-controls">
-                <button id="importJsonBtn" class="btn btn-secondary">📥 Import JSON</button>
-                <button id="exportJsonBtn" class="btn btn-secondary">📤 Export JSON</button>
+        <!-- BEHAVIOR -->
+        <section class="category-section">
+            <div class="category-header">
+                <h2>👤 BEHAVIOR</h2>
+                <input type="file" id="upload-BEHAVIOR" accept=".csv" multiple style="display: none;">
+                <button class="btn btn-secondary upload-btn" data-category="BEHAVIOR">
+                    📁 Upload CSV
+                </button>
             </div>
-        </div>
+            <div id="datasets-BEHAVIOR" class="datasets-grid"></div>
+        </section>
 
-        <div class="category-tabs">
-            <button class="category-tab active" data-category="ACQUISITION">ACQUISITION</button>
-            <button class="category-tab" data-category="BEHAVIOR">BEHAVIOR</button>
-            <button class="category-tab" data-category="CONVERSION">CONVERSION</button>
-            <button class="category-tab" data-category="LOYALTY">LOYALTY</button>
-        </div>
-
-        <div id="categoryContent" class="category-content"></div>
-    </section>
-
-    <!-- JSON Import Modal -->
-    <div id="jsonImportModal" class="modal">
-        <div class="modal-content">
-            <h3>Import JSON Data</h3>
-            <textarea id="jsonImportTextarea" placeholder="Plak hier je JSON data..."></textarea>
-            <div class="modal-actions">
-                <button id="jsonImportConfirm" class="btn btn-primary">Importeren</button>
-                <button id="jsonImportCancel" class="btn btn-secondary">Annuleren</button>
+        <!-- CONVERSION -->
+        <section class="category-section">
+            <div class="category-header">
+                <h2>💰 CONVERSION</h2>
+                <input type="file" id="upload-CONVERSION" accept=".csv" multiple style="display: none;">
+                <button class="btn btn-secondary upload-btn" data-category="CONVERSION">
+                    📁 Upload CSV
+                </button>
             </div>
-        </div>
-    </div>
+            <div id="datasets-CONVERSION" class="datasets-grid"></div>
+        </section>
+
+        <!-- LOYALTY -->
+        <section class="category-section">
+            <div class="category-header">
+                <h2>❤️ LOYALTY</h2>
+                <input type="file" id="upload-LOYALTY" accept=".csv" multiple style="display: none;">
+                <button class="btn btn-secondary upload-btn" data-category="LOYALTY">
+                    📁 Upload CSV
+                </button>
+            </div>
+            <div id="datasets-LOYALTY" class="datasets-grid"></div>
+        </section>
+    </main>
 
     <script type="module" src="app.js"></script>
 </body>
