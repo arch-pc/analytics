@@ -1,102 +1,49 @@
-// ===== ANALYTICS DASHBOARD APP =====
-// Pure JavaScript applicatie voor het beheren van CSV datasets en marketing data
+// ===== ANALYTICS DASHBOARD - HERZIENE VERSIE =====
+// Elke categorie heeft zijn eigen upload en datasets
 
 // ===== APP STATE =====
 const appState = {
-    csvDatasets: [],
     categories: {
-        ACQUISITION: { variables: [] },
-        BEHAVIOR: { variables: [] },
-        CONVERSION: { variables: [] },
-        LOYALTY: { variables: [] }
-    },
-    ui: {
-        activeTab: 'csv',
-        activeCategory: 'ACQUISITION'
+        ACQUISITION: { datasets: [] },
+        BEHAVIOR: { datasets: [] },
+        CONVERSION: { datasets: [] },
+        LOYALTY: { datasets: [] }
     }
 };
 
-// Chart instances opslaan voor cleanup
+// Chart instances
 const chartInstances = {};
 
 // ===== INITIALIZATION =====
 document.addEventListener('DOMContentLoaded', () => {
     loadState();
     setupEventListeners();
-    renderActiveSection();
+    renderAll();
 });
 
-// ===== EVENT LISTENERS SETUP =====
+// ===== EVENT LISTENERS =====
 function setupEventListeners() {
-    // Tab navigation
-    document.querySelectorAll('.nav-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            switchTab(e.target.dataset.tab);
+    // Upload buttons per categorie
+    document.querySelectorAll('.upload-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const category = btn.dataset.category;
+            document.getElementById(`upload-${category}`).click();
         });
     });
 
-    // CSV upload
-    document.getElementById('uploadBtn').addEventListener('click', () => {
-        document.getElementById('csvUpload').click();
-    });
-
-    document.getElementById('csvUpload').addEventListener('change', handleCsvUpload);
-
-    // Category tabs
-    document.querySelectorAll('.category-tab').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            switchCategory(e.target.dataset.category);
+    // File uploads
+    ['ACQUISITION', 'BEHAVIOR', 'CONVERSION', 'LOYALTY'].forEach(category => {
+        document.getElementById(`upload-${category}`).addEventListener('change', (e) => {
+            handleCsvUpload(e, category);
         });
     });
-
-    // JSON Import/Export
-    document.getElementById('importJsonBtn').addEventListener('click', openJsonImportModal);
-    document.getElementById('exportJsonBtn').addEventListener('click', exportJson);
-    document.getElementById('jsonImportConfirm').addEventListener('click', importJson);
-    document.getElementById('jsonImportCancel').addEventListener('click', closeJsonImportModal);
 
     // PDF Export
     document.getElementById('exportPdfBtn').addEventListener('click', generatePdf);
 }
 
-// ===== TAB SWITCHING =====
-function switchTab(tabName) {
-    appState.ui.activeTab = tabName;
-    
-    // Update nav buttons
-    document.querySelectorAll('.nav-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.tab === tabName);
-    });
-
-    // Update sections
-    document.querySelectorAll('.section').forEach(section => {
-        section.classList.remove('active');
-    });
-
-    if (tabName === 'csv') {
-        document.getElementById('csvSection').classList.add('active');
-    } else {
-        document.getElementById('marketingSection').classList.add('active');
-    }
-
-    saveState();
-}
-
-// ===== CATEGORY SWITCHING =====
-function switchCategory(categoryName) {
-    appState.ui.activeCategory = categoryName;
-    
-    // Update category tabs
-    document.querySelectorAll('.category-tab').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.category === categoryName);
-    });
-
-    renderCategoryContent();
-    saveState();
-}
-
-// ===== CSV UPLOAD & PARSING =====
-function handleCsvUpload(event) {
+// ===== CSV UPLOAD =====
+function handleCsvUpload(event, category) {
     const files = event.target.files;
     
     Array.from(files).forEach(file => {
@@ -105,7 +52,7 @@ function handleCsvUpload(event) {
             dynamicTyping: true,
             skipEmptyLines: true,
             complete: (results) => {
-                addCsvDataset(file.name, results.data, results.meta.fields);
+                addDataset(category, file.name, results.data, results.meta.fields);
             },
             error: (error) => {
                 console.error('CSV parse error:', error);
@@ -114,184 +61,246 @@ function handleCsvUpload(event) {
         });
     });
 
-    // Reset file input
     event.target.value = '';
 }
 
-function addCsvDataset(filename, data, columns) {
+// ===== ADD DATASET =====
+function addDataset(category, filename, data, columns) {
+    // Filter irrelevante kolommen (die met < beginnen zijn niet relevant)
+    const relevantColumns = columns.filter(col => !col.startsWith('<'));
+    
+    // Bepaal numerieke kolommen voor grafieken
+    const numericColumns = relevantColumns.filter(col => 
+        isNumericColumn(col, data)
+    );
+
     const dataset = {
-        id: Date.now() + Math.random(), // Unieke ID
+        id: Date.now() + Math.random(),
         name: filename.replace('.csv', ''),
         data: data,
-        columns: columns,
-        visibleColumns: [...columns], // Alle kolommen standaard zichtbaar
-        selectedMetrics: columns.filter(col => isNumericColumn(col, data)), // Numerieke kolommen voor grafiek
+        allColumns: columns,
+        visibleColumns: [...relevantColumns],
+        selectedMetrics: numericColumns.slice(0, 3), // Max 3 metrics standaard
         includePdf: true,
-        visible: true,
         comments: '',
         sortColumn: null,
-        sortDirection: 'asc'
+        sortDirection: 'asc',
+        expanded: false
     };
 
-    appState.csvDatasets.push(dataset);
+    appState.categories[category].datasets.push(dataset);
     saveState();
-    renderCsvDatasets();
+    renderCategory(category);
 }
 
-// ===== CHECK OF KOLOM NUMERIEK IS =====
+// ===== CHECK NUMERIC COLUMN =====
 function isNumericColumn(columnName, data) {
-    // Check eerste 5 niet-null waarden
-    const samples = data.slice(0, 5).map(row => row[columnName]).filter(v => v != null);
-    return samples.some(value => typeof value === 'number' || !isNaN(parseFloat(value)));
+    // Skip duidelijk niet-numerieke kolommen
+    const lowerName = columnName.toLowerCase();
+    if (lowerName.includes('pad') || lowerName.includes('naam') || 
+        lowerName.includes('klasse') || lowerName.includes('pagina')) {
+        return false;
+    }
+
+    const samples = data.slice(0, 10)
+        .map(row => row[columnName])
+        .filter(v => v != null);
+    
+    return samples.some(value => 
+        typeof value === 'number' || !isNaN(parseFloat(value))
+    );
 }
 
-// ===== RENDER CSV DATASETS =====
-function renderCsvDatasets() {
-    const container = document.getElementById('csvDatasetsContainer');
-    container.innerHTML = '';
+// ===== RENDER ALL =====
+function renderAll() {
+    ['ACQUISITION', 'BEHAVIOR', 'CONVERSION', 'LOYALTY'].forEach(category => {
+        renderCategory(category);
+    });
+}
 
-    if (appState.csvDatasets.length === 0) {
-        container.innerHTML = '<p style="text-align: center; color: #95a5a6; padding: 3rem;">Geen datasets geladen. Upload een CSV bestand om te beginnen.</p>';
+// ===== RENDER CATEGORY =====
+function renderCategory(category) {
+    const container = document.getElementById(`datasets-${category}`);
+    const datasets = appState.categories[category].datasets;
+
+    if (datasets.length === 0) {
+        container.innerHTML = '';
         return;
     }
 
-    appState.csvDatasets.forEach((dataset, index) => {
-        if (!dataset.visible) return;
+    container.innerHTML = '';
 
-        const card = document.createElement('div');
-        card.className = 'dataset-card';
-        card.innerHTML = `
-            <div class="dataset-header">
-                <div class="dataset-title">
-                    <input 
-                        type="text" 
-                        class="dataset-name-input" 
-                        value="${dataset.name}"
-                        data-index="${index}"
-                    >
-                </div>
-                <div class="dataset-controls">
-                    <label class="checkbox-label">
-                        <input 
-                            type="checkbox" 
-                            ${dataset.includePdf ? 'checked' : ''}
-                            data-index="${index}"
-                            class="include-pdf-check"
-                        >
-                        Opnemen in PDF
-                    </label>
-                    <button class="btn btn-danger btn-small delete-dataset" data-index="${index}">🗑️ Verwijder</button>
-                </div>
+    datasets.forEach((dataset, index) => {
+        const card = createDatasetCard(dataset, category, index);
+        container.appendChild(card);
+    });
+}
+
+// ===== CREATE DATASET CARD =====
+function createDatasetCard(dataset, category, index) {
+    const card = document.createElement('div');
+    card.className = 'dataset-card';
+
+    card.innerHTML = `
+        <div class="dataset-card-header">
+            <div class="dataset-title">
+                <div class="dataset-name">${dataset.name}</div>
+                <div class="dataset-meta">${dataset.data.length} rijen • ${dataset.visibleColumns.length} kolommen</div>
             </div>
-
-            <div class="column-visibility">
-                <h4>Kolom zichtbaarheid:</h4>
-                <div class="column-checkboxes" data-index="${index}">
-                    ${dataset.columns.map(col => `
-                        <label class="checkbox-label">
-                            <input 
-                                type="checkbox" 
-                                ${dataset.visibleColumns.includes(col) ? 'checked' : ''}
-                                data-column="${col}"
-                            >
-                            ${col}
-                        </label>
-                    `).join('')}
-                </div>
+            <div class="dataset-actions">
+                <button class="btn btn-danger delete-btn" data-category="${category}" data-index="${index}">
+                    🗑️
+                </button>
             </div>
+        </div>
 
-            <div class="data-table-container">
-                <table class="data-table" id="table-${dataset.id}"></table>
-            </div>
+        <!-- Mini Chart Preview -->
+        <div class="mini-chart-container">
+            <canvas class="mini-chart-canvas" id="mini-chart-${dataset.id}"></canvas>
+        </div>
 
-            <div class="chart-section">
-                <div class="chart-controls">
-                    <h4>Metrics voor grafiek:</h4>
-                    <div class="metric-checkboxes" data-index="${index}">
-                        ${dataset.columns.filter(col => isNumericColumn(col, dataset.data)).map(col => `
+        <label class="pdf-checkbox">
+            <input type="checkbox" ${dataset.includePdf ? 'checked' : ''} 
+                   class="include-pdf-check" data-category="${category}" data-index="${index}">
+            Opnemen in PDF rapport
+        </label>
+
+        <!-- Expandable Details -->
+        <div class="expandable-section">
+            <button class="expand-toggle" data-dataset-id="${dataset.id}">
+                Tabel & Opties tonen
+            </button>
+            <div class="expandable-content" id="expand-${dataset.id}">
+                
+                <!-- Column Visibility -->
+                <div class="column-visibility">
+                    <h4>Zichtbare kolommen:</h4>
+                    <div class="column-checkboxes">
+                        ${dataset.visibleColumns.map(col => `
                             <label class="checkbox-label">
-                                <input 
-                                    type="checkbox" 
-                                    ${dataset.selectedMetrics.includes(col) ? 'checked' : ''}
-                                    data-metric="${col}"
-                                >
+                                <input type="checkbox" checked 
+                                       data-category="${category}" 
+                                       data-index="${index}" 
+                                       data-column="${col}" 
+                                       class="column-toggle">
                                 ${col}
                             </label>
                         `).join('')}
                     </div>
                 </div>
-                <div class="chart-canvas">
+
+                <!-- Data Table -->
+                <div class="data-table-container">
+                    <table class="data-table" id="table-${dataset.id}"></table>
+                </div>
+
+                <!-- Chart Controls -->
+                <div class="chart-controls">
+                    <h4>Metrics in grafiek:</h4>
+                    <div class="metric-checkboxes">
+                        ${dataset.visibleColumns.filter(col => isNumericColumn(col, dataset.data)).map(col => `
+                            <label class="checkbox-label">
+                                <input type="checkbox" 
+                                       ${dataset.selectedMetrics.includes(col) ? 'checked' : ''}
+                                       data-category="${category}" 
+                                       data-index="${index}" 
+                                       data-metric="${col}" 
+                                       class="metric-toggle">
+                                ${col}
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <!-- Full Chart -->
+                <div class="full-chart-container">
                     <canvas id="chart-${dataset.id}"></canvas>
                 </div>
+
+                <!-- Comments -->
+                <div class="comments-section">
+                    <label>Opmerkingen:</label>
+                    <textarea class="comments-textarea" 
+                              data-category="${category}" 
+                              data-index="${index}"
+                              placeholder="Voeg opmerkingen toe over deze dataset...">${dataset.comments || ''}</textarea>
+                </div>
+
             </div>
+        </div>
+    `;
 
-            <div class="comments-section">
-                <label>Opmerkingen:</label>
-                <textarea 
-                    class="comments-textarea" 
-                    data-index="${index}"
-                    placeholder="Voeg hier opmerkingen toe over deze dataset..."
-                >${dataset.comments || ''}</textarea>
-            </div>
-        `;
+    // Setup event listeners
+    setupCardListeners(card, dataset, category, index);
 
-        container.appendChild(card);
+    // Render charts en table
+    renderMiniChart(dataset);
+    renderTable(dataset);
+    renderFullChart(dataset);
 
-        // Event listeners voor deze card
-        setupDatasetCardListeners(card, dataset, index);
-
-        // Render tabel en grafiek
-        renderDataTable(dataset);
-        renderChart(dataset);
-    });
+    return card;
 }
 
-// ===== SETUP LISTENERS VOOR DATASET CARD =====
-function setupDatasetCardListeners(card, dataset, index) {
-    // Dataset naam wijzigen
-    card.querySelector('.dataset-name-input').addEventListener('change', (e) => {
-        appState.csvDatasets[index].name = e.target.value;
-        saveState();
-    });
-
-    // Include PDF toggle
-    card.querySelector('.include-pdf-check').addEventListener('change', (e) => {
-        appState.csvDatasets[index].includePdf = e.target.checked;
-        saveState();
-    });
-
-    // Delete dataset
-    card.querySelector('.delete-dataset').addEventListener('click', () => {
-        if (confirm('Weet je zeker dat je deze dataset wilt verwijderen?')) {
-            // Destroy chart instance
-            if (chartInstances[dataset.id]) {
-                chartInstances[dataset.id].destroy();
-                delete chartInstances[dataset.id];
-            }
-            appState.csvDatasets.splice(index, 1);
+// ===== SETUP CARD LISTENERS =====
+function setupCardListeners(card, dataset, category, index) {
+    // Delete button
+    card.querySelector('.delete-btn').addEventListener('click', () => {
+        if (confirm('Dataset verwijderen?')) {
+            destroyCharts(dataset);
+            appState.categories[category].datasets.splice(index, 1);
             saveState();
-            renderCsvDatasets();
+            renderCategory(category);
         }
     });
 
-    // Kolom visibility checkboxes
-    card.querySelectorAll('.column-checkboxes input[type="checkbox"]').forEach(checkbox => {
+    // PDF checkbox
+    card.querySelector('.include-pdf-check').addEventListener('change', (e) => {
+        dataset.includePdf = e.target.checked;
+        saveState();
+    });
+
+    // Expand/collapse
+    const toggleBtn = card.querySelector('.expand-toggle');
+    const content = card.querySelector('.expandable-content');
+    
+    toggleBtn.addEventListener('click', () => {
+        dataset.expanded = !dataset.expanded;
+        toggleBtn.classList.toggle('expanded', dataset.expanded);
+        content.classList.toggle('expanded', dataset.expanded);
+        
+        if (dataset.expanded) {
+            // Re-render charts when expanded
+            setTimeout(() => {
+                renderFullChart(dataset);
+            }, 100);
+        }
+        saveState();
+    });
+
+    // Set initial state
+    if (dataset.expanded) {
+        toggleBtn.classList.add('expanded');
+        content.classList.add('expanded');
+    }
+
+    // Column toggles
+    card.querySelectorAll('.column-toggle').forEach(checkbox => {
         checkbox.addEventListener('change', (e) => {
             const column = e.target.dataset.column;
-            if (e.target.checked) {
+            if (!e.target.checked) {
+                dataset.visibleColumns = dataset.visibleColumns.filter(c => c !== column);
+            } else {
                 if (!dataset.visibleColumns.includes(column)) {
                     dataset.visibleColumns.push(column);
                 }
-            } else {
-                dataset.visibleColumns = dataset.visibleColumns.filter(c => c !== column);
             }
             saveState();
-            renderDataTable(dataset);
+            renderTable(dataset);
         });
     });
 
-    // Metric checkboxes voor grafiek
-    card.querySelectorAll('.metric-checkboxes input[type="checkbox"]').forEach(checkbox => {
+    // Metric toggles
+    card.querySelectorAll('.metric-toggle').forEach(checkbox => {
         checkbox.addEventListener('change', (e) => {
             const metric = e.target.dataset.metric;
             if (e.target.checked) {
@@ -302,35 +311,33 @@ function setupDatasetCardListeners(card, dataset, index) {
                 dataset.selectedMetrics = dataset.selectedMetrics.filter(m => m !== metric);
             }
             saveState();
-            renderChart(dataset);
+            renderMiniChart(dataset);
+            renderFullChart(dataset);
         });
     });
 
-    // Comments textarea
+    // Comments
     card.querySelector('.comments-textarea').addEventListener('input', (e) => {
-        appState.csvDatasets[index].comments = e.target.value;
+        dataset.comments = e.target.value;
         saveState();
     });
 }
 
-// ===== RENDER DATA TABLE =====
-function renderDataTable(dataset) {
+// ===== RENDER TABLE =====
+function renderTable(dataset) {
     const table = document.getElementById(`table-${dataset.id}`);
     if (!table) return;
 
-    // Sorteer data indien nodig
     let sortedData = [...dataset.data];
     if (dataset.sortColumn) {
         sortedData.sort((a, b) => {
             const aVal = a[dataset.sortColumn];
             const bVal = b[dataset.sortColumn];
             
-            // Numerieke vergelijking
             if (typeof aVal === 'number' && typeof bVal === 'number') {
                 return dataset.sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
             }
             
-            // String vergelijking
             const aStr = String(aVal || '');
             const bStr = String(bVal || '');
             return dataset.sortDirection === 'asc' 
@@ -339,10 +346,8 @@ function renderDataTable(dataset) {
         });
     }
 
-    // Bereken totalen
     const totals = calculateTotals(dataset);
 
-    // Build HTML
     let html = '<thead><tr>';
     dataset.visibleColumns.forEach(col => {
         const sortClass = dataset.sortColumn === col 
@@ -350,9 +355,8 @@ function renderDataTable(dataset) {
             : 'sortable';
         html += `<th class="${sortClass}" data-column="${col}">${col}</th>`;
     });
-    html += '</tr></thead>';
+    html += '</tr></thead><tbody>';
 
-    html += '<tbody>';
     sortedData.forEach(row => {
         html += '<tr>';
         dataset.visibleColumns.forEach(col => {
@@ -361,50 +365,49 @@ function renderDataTable(dataset) {
         });
         html += '</tr>';
     });
-    html += '</tbody>';
 
-    // Totalen rij
-    html += '<tfoot><tr>';
+    html += '</tbody><tfoot><tr>';
     dataset.visibleColumns.forEach(col => {
         const totalValue = totals[col];
-        html += `<td>${totalValue != null ? formatValue(totalValue) : ''}</td>`;
+        html += `<td><strong>${totalValue != null ? 'Σ ' + formatValue(totalValue) : ''}</strong></td>`;
     });
     html += '</tr></tfoot>';
 
     table.innerHTML = html;
 
-    // Add sort listeners
+    // Sort listeners
     table.querySelectorAll('th[data-column]').forEach(th => {
         th.addEventListener('click', () => {
             const column = th.dataset.column;
             if (dataset.sortColumn === column) {
-                // Toggle direction
                 dataset.sortDirection = dataset.sortDirection === 'asc' ? 'desc' : 'asc';
             } else {
                 dataset.sortColumn = column;
                 dataset.sortDirection = 'asc';
             }
             saveState();
-            renderDataTable(dataset);
+            renderTable(dataset);
         });
     });
 }
 
-// ===== BEREKEN TOTALEN =====
+// ===== CALCULATE TOTALS =====
 function calculateTotals(dataset) {
     const totals = {};
     
-    dataset.columns.forEach(col => {
+    dataset.visibleColumns.forEach(col => {
         const values = dataset.data
             .map(row => row[col])
             .filter(v => v != null && typeof v === 'number');
         
         if (values.length > 0) {
-            // Simpele som voor numerieke waarden
-            // Voor gemiddeldes zou je kunnen checken op specifieke kolomnamen
-            if (col.toLowerCase().includes('gemiddeld') || col.toLowerCase().includes('avg')) {
+            // Voor gemiddelde kolommen
+            if (col.toLowerCase().includes('gemiddeld') || 
+                col.toLowerCase().includes('per actieve') ||
+                col.toLowerCase().includes('avg')) {
                 totals[col] = values.reduce((sum, v) => sum + v, 0) / values.length;
             } else {
+                // Som
                 totals[col] = values.reduce((sum, v) => sum + v, 0);
             }
         }
@@ -421,370 +424,124 @@ function formatValue(value) {
     return value;
 }
 
-// ===== RENDER CHART =====
-function renderChart(dataset) {
-    const canvas = document.getElementById(`chart-${dataset.id}`);
+// ===== RENDER MINI CHART =====
+function renderMiniChart(dataset) {
+    const canvas = document.getElementById(`mini-chart-${dataset.id}`);
     if (!canvas) return;
 
-    // Destroy bestaande chart
-    if (chartInstances[dataset.id]) {
-        chartInstances[dataset.id].destroy();
+    const chartId = `mini-chart-${dataset.id}`;
+    if (chartInstances[chartId]) {
+        chartInstances[chartId].destroy();
     }
 
-    // Geen metrics geselecteerd
     if (dataset.selectedMetrics.length === 0) {
         canvas.style.display = 'none';
         return;
     }
     canvas.style.display = 'block';
 
-    // Bepaal X-as labels (eerste kolom of index)
     const labels = dataset.data.map((row, idx) => {
-        // Probeer een datum/label kolom te vinden
-        const labelCol = dataset.columns.find(col => 
-            col.toLowerCase().includes('date') || 
-            col.toLowerCase().includes('datum') ||
-            col.toLowerCase().includes('week') ||
-            col.toLowerCase().includes('dag')
+        const labelCol = dataset.visibleColumns.find(col => 
+            col.toLowerCase().includes('pad') || 
+            col.toLowerCase().includes('pagina')
         );
-        return labelCol ? row[labelCol] : `Rij ${idx + 1}`;
+        return labelCol ? String(row[labelCol]).substring(0, 20) : `Rij ${idx + 1}`;
     });
 
-    // Datasets voor Chart.js
     const datasets = dataset.selectedMetrics.map((metric, idx) => {
-        const colors = [
-            '#667eea', '#f39c12', '#e74c3c', '#2ecc71', '#3498db',
-            '#9b59b6', '#1abc9c', '#e67e22', '#95a5a6', '#34495e'
-        ];
-        
+        const colors = ['#667eea', '#f39c12', '#e74c3c', '#2ecc71', '#3498db'];
+        return {
+            label: metric,
+            data: dataset.data.map(row => row[metric]),
+            borderColor: colors[idx % colors.length],
+            backgroundColor: colors[idx % colors.length] + '22',
+            tension: 0.3,
+            borderWidth: 2
+        };
+    });
+
+    const ctx = canvas.getContext('2d');
+    chartInstances[chartId] = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 10 } } },
+                title: { display: false }
+            },
+            scales: {
+                y: { beginAtZero: true, ticks: { font: { size: 9 } } },
+                x: { ticks: { font: { size: 8 }, maxRotation: 45, minRotation: 45 } }
+            }
+        }
+    });
+}
+
+// ===== RENDER FULL CHART =====
+function renderFullChart(dataset) {
+    const canvas = document.getElementById(`chart-${dataset.id}`);
+    if (!canvas) return;
+
+    const chartId = `chart-${dataset.id}`;
+    if (chartInstances[chartId]) {
+        chartInstances[chartId].destroy();
+    }
+
+    if (dataset.selectedMetrics.length === 0) {
+        canvas.style.display = 'none';
+        return;
+    }
+    canvas.style.display = 'block';
+
+    const labels = dataset.data.map((row, idx) => {
+        const labelCol = dataset.visibleColumns.find(col => 
+            col.toLowerCase().includes('pad') || 
+            col.toLowerCase().includes('pagina')
+        );
+        return labelCol ? String(row[labelCol]) : `Rij ${idx + 1}`;
+    });
+
+    const datasets = dataset.selectedMetrics.map((metric, idx) => {
+        const colors = ['#667eea', '#f39c12', '#e74c3c', '#2ecc71', '#3498db'];
         return {
             label: metric,
             data: dataset.data.map(row => row[metric]),
             borderColor: colors[idx % colors.length],
             backgroundColor: colors[idx % colors.length] + '33',
-            tension: 0.3
+            tension: 0.3,
+            borderWidth: 3
         };
     });
 
     const ctx = canvas.getContext('2d');
-    chartInstances[dataset.id] = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: datasets
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: true,
-            plugins: {
-                legend: {
-                    display: true,
-                    position: 'top'
-                },
-                title: {
-                    display: true,
-                    text: dataset.name
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true
-                }
-            }
-        }
-    });
-}
-
-// ===== MARKETING DASHBOARD - RENDER CATEGORY CONTENT =====
-function renderCategoryContent() {
-    const container = document.getElementById('categoryContent');
-    const category = appState.ui.activeCategory;
-    const categoryData = appState.categories[category];
-
-    if (!categoryData || !categoryData.variables || categoryData.variables.length === 0) {
-        container.innerHTML = `
-            <p style="text-align: center; color: #95a5a6; padding: 2rem;">
-                Geen variabelen gevonden in ${category}. Importeer JSON data om te beginnen.
-            </p>
-        `;
-        return;
-    }
-
-    container.innerHTML = '';
-
-    categoryData.variables.forEach((variable, varIndex) => {
-        const card = document.createElement('div');
-        card.className = 'variable-card';
-
-        // Bepaal periodes uit data keys
-        const periods = variable.data ? Object.keys(variable.data) : [];
-
-        card.innerHTML = `
-            <div class="variable-header">
-                <div class="variable-info">
-                    <h3>${variable.name}</h3>
-                    <div class="variable-tags">
-                        ${(variable.tags || []).map(tag => `<span class="tag">${tag}</span>`).join('')}
-                        ${variable.unit ? `<span class="tag unit-badge">${variable.unit}</span>` : ''}
-                    </div>
-                </div>
-                <label class="checkbox-label">
-                    <input 
-                        type="checkbox" 
-                        ${variable.includePdf !== false ? 'checked' : ''}
-                        class="var-include-pdf"
-                        data-var-index="${varIndex}"
-                    >
-                    Opnemen in PDF
-                </label>
-            </div>
-
-            <table class="variable-data-table">
-                <thead>
-                    <tr>
-                        <th>Periode</th>
-                        <th>Waarde</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${periods.map(period => `
-                        <tr>
-                            <td>${period}</td>
-                            <td>
-                                <input 
-                                    type="text" 
-                                    value="${variable.data[period] != null ? variable.data[period] : ''}"
-                                    data-var-index="${varIndex}"
-                                    data-period="${period}"
-                                    class="var-data-input"
-                                >
-                            </td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-
-            <div class="comments-section">
-                <label>Opmerkingen:</label>
-                <textarea 
-                    class="comments-textarea var-comments" 
-                    data-var-index="${varIndex}"
-                    placeholder="Voeg hier opmerkingen toe..."
-                >${variable.comments || ''}</textarea>
-            </div>
-
-            <div class="chart-canvas" style="margin-top: 1rem;">
-                <canvas id="var-chart-${category}-${varIndex}"></canvas>
-            </div>
-
-            ${variable.subVariables && variable.subVariables.length > 0 ? `
-                <div class="sub-variables">
-                    <h4>Sub-variabelen:</h4>
-                    ${variable.subVariables.map((subVar, subIndex) => `
-                        <div class="sub-variable">
-                            <h4>${subVar.name}</h4>
-                            <table class="variable-data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Periode</th>
-                                        <th>Waarde</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${Object.keys(subVar.data || {}).map(period => `
-                                        <tr>
-                                            <td>${period}</td>
-                                            <td>
-                                                <input 
-                                                    type="text" 
-                                                    value="${subVar.data[period] != null ? subVar.data[period] : ''}"
-                                                    data-var-index="${varIndex}"
-                                                    data-sub-index="${subIndex}"
-                                                    data-period="${period}"
-                                                    class="subvar-data-input"
-                                                >
-                                            </td>
-                                        </tr>
-                                    `).join('')}
-                                </tbody>
-                            </table>
-                            <div class="comments-section">
-                                <label>Opmerkingen:</label>
-                                <textarea 
-                                    class="comments-textarea subvar-comments" 
-                                    data-var-index="${varIndex}"
-                                    data-sub-index="${subIndex}"
-                                    placeholder="Voeg hier opmerkingen toe..."
-                                >${subVar.comments || ''}</textarea>
-                            </div>
-                        </div>
-                    `).join('')}
-                </div>
-            ` : ''}
-        `;
-
-        container.appendChild(card);
-
-        // Event listeners
-        setupVariableCardListeners(card, category, varIndex);
-
-        // Render chart
-        renderVariableChart(category, variable, varIndex);
-    });
-}
-
-// ===== SETUP VARIABLE CARD LISTENERS =====
-function setupVariableCardListeners(card, category, varIndex) {
-    const categoryData = appState.categories[category];
-    const variable = categoryData.variables[varIndex];
-
-    // Include PDF checkbox
-    card.querySelector('.var-include-pdf')?.addEventListener('change', (e) => {
-        variable.includePdf = e.target.checked;
-        saveState();
-    });
-
-    // Variable data inputs
-    card.querySelectorAll('.var-data-input').forEach(input => {
-        input.addEventListener('input', (e) => {
-            const period = e.target.dataset.period;
-            const value = e.target.value.trim();
-            variable.data[period] = value === '' ? null : parseFloat(value) || value;
-            saveState();
-            renderVariableChart(category, variable, varIndex);
-        });
-    });
-
-    // Variable comments
-    card.querySelector('.var-comments')?.addEventListener('input', (e) => {
-        variable.comments = e.target.value;
-        saveState();
-    });
-
-    // Sub-variable data inputs
-    card.querySelectorAll('.subvar-data-input').forEach(input => {
-        input.addEventListener('input', (e) => {
-            const subIndex = parseInt(e.target.dataset.subIndex);
-            const period = e.target.dataset.period;
-            const value = e.target.value.trim();
-            const subVar = variable.subVariables[subIndex];
-            subVar.data[period] = value === '' ? null : parseFloat(value) || value;
-            saveState();
-        });
-    });
-
-    // Sub-variable comments
-    card.querySelectorAll('.subvar-comments').forEach(textarea => {
-        textarea.addEventListener('input', (e) => {
-            const subIndex = parseInt(e.target.dataset.subIndex);
-            variable.subVariables[subIndex].comments = e.target.value;
-            saveState();
-        });
-    });
-}
-
-// ===== RENDER VARIABLE CHART =====
-function renderVariableChart(category, variable, varIndex) {
-    const chartId = `var-chart-${category}-${varIndex}`;
-    const canvas = document.getElementById(chartId);
-    if (!canvas) return;
-
-    // Destroy bestaande chart
-    if (chartInstances[chartId]) {
-        chartInstances[chartId].destroy();
-    }
-
-    const periods = Object.keys(variable.data || {});
-    const values = Object.values(variable.data || {}).map(v => 
-        v != null && !isNaN(v) ? parseFloat(v) : null
-    );
-
-    const ctx = canvas.getContext('2d');
     chartInstances[chartId] = new Chart(ctx, {
         type: 'line',
-        data: {
-            labels: periods,
-            datasets: [{
-                label: variable.name,
-                data: values,
-                borderColor: '#667eea',
-                backgroundColor: '#667eea33',
-                tension: 0.3
-            }]
-        },
+        data: { labels, datasets },
         options: {
             responsive: true,
             maintainAspectRatio: true,
             plugins: {
-                legend: {
-                    display: false
-                },
-                title: {
-                    display: true,
-                    text: variable.name
-                }
+                legend: { display: true, position: 'top' },
+                title: { display: true, text: dataset.name, font: { size: 14, weight: 'bold' } }
             },
             scales: {
-                y: {
-                    beginAtZero: true
-                }
+                y: { beginAtZero: true },
+                x: { ticks: { maxRotation: 45, minRotation: 0 } }
             }
         }
     });
 }
 
-// ===== JSON IMPORT/EXPORT =====
-function openJsonImportModal() {
-    document.getElementById('jsonImportModal').classList.add('active');
-}
-
-function closeJsonImportModal() {
-    document.getElementById('jsonImportModal').classList.remove('active');
-    document.getElementById('jsonImportTextarea').value = '';
-}
-
-function importJson() {
-    const textarea = document.getElementById('jsonImportTextarea');
-    const jsonText = textarea.value.trim();
-
-    if (!jsonText) {
-        alert('Plak eerst JSON data in het tekstveld.');
-        return;
-    }
-
-    try {
-        const imported = JSON.parse(jsonText);
-        
-        // Valideer structuur
-        if (typeof imported !== 'object') {
-            throw new Error('Geen geldig JSON object');
+// ===== DESTROY CHARTS =====
+function destroyCharts(dataset) {
+    [`mini-chart-${dataset.id}`, `chart-${dataset.id}`].forEach(chartId => {
+        if (chartInstances[chartId]) {
+            chartInstances[chartId].destroy();
+            delete chartInstances[chartId];
         }
-
-        // Merge of replace categorieën
-        Object.keys(imported).forEach(category => {
-            if (['ACQUISITION', 'BEHAVIOR', 'CONVERSION', 'LOYALTY'].includes(category)) {
-                appState.categories[category] = imported[category];
-            }
-        });
-
-        saveState();
-        renderCategoryContent();
-        closeJsonImportModal();
-        alert('JSON data succesvol geïmporteerd!');
-    } catch (error) {
-        alert('Fout bij het importeren van JSON: ' + error.message);
-    }
-}
-
-function exportJson() {
-    const jsonData = JSON.stringify(appState.categories, null, 2);
-    const blob = new Blob([jsonData], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'marketing-dashboard-data.json';
-    a.click();
-    URL.revokeObjectURL(url);
+    });
 }
 
 // ===== PDF GENERATION =====
@@ -793,169 +550,106 @@ async function generatePdf() {
     const pdf = new jsPDF('p', 'mm', 'a4');
     let yOffset = 10;
 
-    // Titel
     pdf.setFontSize(20);
     pdf.text('Analytics Dashboard Rapport', 10, yOffset);
     yOffset += 10;
 
     pdf.setFontSize(10);
-    pdf.text(`Gegenereerd op: ${new Date().toLocaleDateString('nl-NL')}`, 10, yOffset);
+    pdf.text(`Gegenereerd: ${new Date().toLocaleString('nl-NL')}`, 10, yOffset);
     yOffset += 15;
 
-    // CSV Datasets
-    for (const dataset of appState.csvDatasets) {
-        if (!dataset.includePdf || !dataset.visible) continue;
+    for (const categoryName of ['ACQUISITION', 'BEHAVIOR', 'CONVERSION', 'LOYALTY']) {
+        const category = appState.categories[categoryName];
+        const includedDatasets = category.datasets.filter(d => d.includePdf);
 
-        // Nieuwe pagina als niet genoeg ruimte
-        if (yOffset > 250) {
-            pdf.addPage();
-            yOffset = 10;
-        }
+        if (includedDatasets.length === 0) continue;
 
-        pdf.setFontSize(14);
-        pdf.text(dataset.name, 10, yOffset);
-        yOffset += 7;
+        pdf.setFontSize(16);
+        pdf.text(categoryName, 10, yOffset);
+        yOffset += 10;
 
-        // Capture tabel
-        const tableElement = document.getElementById(`table-${dataset.id}`);
-        if (tableElement) {
-            try {
-                const canvas = await html2canvas(tableElement, {
-                    scale: 2,
-                    logging: false
-                });
-                const imgData = canvas.toDataURL('image/png');
-                const imgWidth = 190;
-                const imgHeight = (canvas.height * imgWidth) / canvas.width;
-                
-                if (yOffset + imgHeight > 280) {
-                    pdf.addPage();
-                    yOffset = 10;
-                }
-                
-                pdf.addImage(imgData, 'PNG', 10, yOffset, imgWidth, imgHeight);
-                yOffset += imgHeight + 10;
-            } catch (error) {
-                console.error('Error capturing table:', error);
+        for (const dataset of includedDatasets) {
+            if (yOffset > 250) {
+                pdf.addPage();
+                yOffset = 10;
             }
-        }
 
-        // Capture grafiek
-        if (dataset.selectedMetrics.length > 0) {
-            const chartCanvas = document.getElementById(`chart-${dataset.id}`);
-            if (chartCanvas) {
+            pdf.setFontSize(14);
+            pdf.text(dataset.name, 10, yOffset);
+            yOffset += 7;
+
+            // Table
+            const tableEl = document.getElementById(`table-${dataset.id}`);
+            if (tableEl) {
                 try {
-                    const imgData = chartCanvas.toDataURL('image/png');
+                    const canvas = await html2canvas(tableEl, { scale: 1.5 });
+                    const imgData = canvas.toDataURL('image/png');
                     const imgWidth = 190;
-                    const imgHeight = 100;
+                    const imgHeight = (canvas.height * imgWidth) / canvas.width;
                     
                     if (yOffset + imgHeight > 280) {
                         pdf.addPage();
                         yOffset = 10;
                     }
                     
-                    pdf.addImage(imgData, 'PNG', 10, yOffset, imgWidth, imgHeight);
-                    yOffset += imgHeight + 10;
-                } catch (error) {
-                    console.error('Error capturing chart:', error);
+                    pdf.addImage(imgData, 'PNG', 10, yOffset, imgWidth, Math.min(imgHeight, 150));
+                    yOffset += Math.min(imgHeight, 150) + 5;
+                } catch (e) {
+                    console.error('Error capturing table:', e);
                 }
             }
-        }
 
-        // Opmerkingen
-        if (dataset.comments) {
-            if (yOffset > 260) {
-                pdf.addPage();
-                yOffset = 10;
-            }
-            pdf.setFontSize(10);
-            pdf.text('Opmerkingen:', 10, yOffset);
-            yOffset += 5;
-            const lines = pdf.splitTextToSize(dataset.comments, 190);
-            pdf.text(lines, 10, yOffset);
-            yOffset += lines.length * 5 + 10;
-        }
-
-        yOffset += 5;
-    }
-
-    // Marketing Dashboard categorieën
-    for (const categoryName of ['ACQUISITION', 'BEHAVIOR', 'CONVERSION', 'LOYALTY']) {
-        const category = appState.categories[categoryName];
-        if (!category || !category.variables) continue;
-
-        const includedVars = category.variables.filter(v => v.includePdf !== false);
-        if (includedVars.length === 0) continue;
-
-        pdf.addPage();
-        yOffset = 10;
-
-        pdf.setFontSize(16);
-        pdf.text(categoryName, 10, yOffset);
-        yOffset += 10;
-
-        for (const variable of includedVars) {
-            if (yOffset > 250) {
-                pdf.addPage();
-                yOffset = 10;
+            // Chart
+            if (dataset.selectedMetrics.length > 0) {
+                const chartCanvas = document.getElementById(`chart-${dataset.id}`);
+                if (chartCanvas) {
+                    try {
+                        const imgData = chartCanvas.toDataURL('image/png');
+                        const imgHeight = 80;
+                        
+                        if (yOffset + imgHeight > 280) {
+                            pdf.addPage();
+                            yOffset = 10;
+                        }
+                        
+                        pdf.addImage(imgData, 'PNG', 10, yOffset, 190, imgHeight);
+                        yOffset += imgHeight + 5;
+                    } catch (e) {
+                        console.error('Error capturing chart:', e);
+                    }
+                }
             }
 
-            pdf.setFontSize(12);
-            pdf.text(variable.name, 10, yOffset);
-            yOffset += 7;
-
-            // Variable data als tabel
-            pdf.setFontSize(9);
-            const periods = Object.keys(variable.data || {});
-            const cellWidth = 40;
-            let xPos = 10;
-
-            // Headers
-            pdf.text('Periode', xPos, yOffset);
-            xPos += cellWidth;
-            pdf.text('Waarde', xPos, yOffset);
-            yOffset += 5;
-
-            // Data rows
-            periods.forEach(period => {
-                xPos = 10;
-                pdf.text(period, xPos, yOffset);
-                xPos += cellWidth;
-                const value = variable.data[period];
-                pdf.text(value != null ? String(value) : '-', xPos, yOffset);
-                yOffset += 5;
-            });
-
-            yOffset += 5;
-
-            // Opmerkingen
-            if (variable.comments) {
+            // Comments
+            if (dataset.comments) {
                 if (yOffset > 260) {
                     pdf.addPage();
                     yOffset = 10;
                 }
                 pdf.setFontSize(9);
                 pdf.text('Opmerkingen:', 10, yOffset);
-                yOffset += 4;
-                const lines = pdf.splitTextToSize(variable.comments, 190);
+                yOffset += 5;
+                const lines = pdf.splitTextToSize(dataset.comments, 190);
                 pdf.text(lines, 10, yOffset);
-                yOffset += lines.length * 4 + 5;
+                yOffset += lines.length * 4 + 10;
             }
+
+            yOffset += 5;
         }
+
+        yOffset += 10;
     }
 
-    // Save PDF
-    pdf.save('analytics-dashboard-rapport.pdf');
+    pdf.save(`analytics-rapport-${new Date().toISOString().split('T')[0]}.pdf`);
     alert('PDF succesvol gegenereerd!');
 }
 
 // ===== LOCAL STORAGE =====
 function saveState() {
     try {
-        const serialized = JSON.stringify(appState);
-        localStorage.setItem('analyticsDashboardState', serialized);
-    } catch (error) {
-        console.error('Error saving state:', error);
+        localStorage.setItem('analyticsDashboardState', JSON.stringify(appState));
+    } catch (e) {
+        console.error('Error saving state:', e);
     }
 }
 
@@ -964,133 +658,9 @@ function loadState() {
         const saved = localStorage.getItem('analyticsDashboardState');
         if (saved) {
             const parsed = JSON.parse(saved);
-            
-            // Merge met bestaande state
-            if (parsed.csvDatasets) {
-                appState.csvDatasets = parsed.csvDatasets;
-            }
-            if (parsed.categories) {
-                appState.categories = parsed.categories;
-            }
-            if (parsed.ui) {
-                appState.ui = parsed.ui;
-            }
-
-            // Update UI op basis van opgeslagen state
-            if (appState.ui.activeTab) {
-                switchTab(appState.ui.activeTab);
-            }
-            if (appState.ui.activeCategory) {
-                document.querySelectorAll('.category-tab').forEach(btn => {
-                    btn.classList.toggle('active', btn.dataset.category === appState.ui.activeCategory);
-                });
-            }
-        } else {
-            // Initialiseer met voorbeeld data
-            initializeDefaultData();
+            Object.assign(appState, parsed);
         }
-    } catch (error) {
-        console.error('Error loading state:', error);
-        initializeDefaultData();
+    } catch (e) {
+        console.error('Error loading state:', e);
     }
 }
-
-// ===== INITIALISEER DEFAULT DATA =====
-function initializeDefaultData() {
-    appState.categories = {
-        ACQUISITION: {
-            variables: [
-                {
-                    name: "Nieuwe bezoekers",
-                    tags: ["website"],
-                    unit: "",
-                    data: {
-                        "Week 1": 322,
-                        "Week 2": null,
-                        "Week 3": null,
-                        "Week 4": null
-                    },
-                    includePdf: true,
-                    comments: "",
-                    subVariables: [
-                        {
-                            name: "Pageviews van landingspagina",
-                            data: {
-                                "Week 1": null,
-                                "Week 2": null,
-                                "Week 3": null,
-                                "Week 4": null
-                            },
-                            comments: ""
-                        }
-                    ]
-                }
-            ]
-        },
-        BEHAVIOR: {
-            variables: [
-                {
-                    name: "Gemiddelde sessieduur",
-                    tags: ["engagement"],
-                    unit: "minuten",
-                    data: {
-                        "Week 1": 3.5,
-                        "Week 2": null,
-                        "Week 3": null,
-                        "Week 4": null
-                    },
-                    includePdf: true,
-                    comments: "",
-                    subVariables: []
-                }
-            ]
-        },
-        CONVERSION: {
-            variables: [
-                {
-                    name: "Conversie rate",
-                    tags: ["sales"],
-                    unit: "%",
-                    data: {
-                        "Week 1": 2.5,
-                        "Week 2": null,
-                        "Week 3": null,
-                        "Week 4": null
-                    },
-                    includePdf: true,
-                    comments: "",
-                    subVariables: []
-                }
-            ]
-        },
-        LOYALTY: {
-            variables: [
-                {
-                    name: "Terugkerende bezoekers",
-                    tags: ["retention"],
-                    unit: "",
-                    data: {
-                        "Week 1": 156,
-                        "Week 2": null,
-                        "Week 3": null,
-                        "Week 4": null
-                    },
-                    includePdf: true,
-                    comments: "",
-                    subVariables: []
-                }
-            ]
-        }
-    };
-    saveState();
-}
-
-// ===== RENDER ACTIVE SECTION =====
-function renderActiveSection() {
-    if (appState.ui.activeTab === 'csv') {
-        renderCsvDatasets();
-    } else {
-        renderCategoryContent();
-    }
-}
-                
