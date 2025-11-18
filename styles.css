@@ -17,6 +17,23 @@ body {
     color: var(--font-color);
 }
 
+#export-pdf-btn {
+    background-color: var(--success-color);
+    color: white;
+    border-color: var(--success-color);
+    font-weight: 500;
+}
+
+#export-pdf-btn:hover {
+    background-color: #218838;
+    border-color: #1e7e34;
+}
+
+#load-status {
+    margin-left: 1rem;
+    color: var(--secondary-color);
+    font-size: 0.9rem;
+}
 .header {
     background-color: var(--bg-card);
     padding: 20px 30px;
