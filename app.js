@@ -1,11 +1,10 @@
-// Globale variabele voor jsPDF om makkelijker te gebruiken (gedefinieerd door de CDN)
+// Globale variabele voor jsPDF om makkelijker te gebruiken
 const { jsPDF } = window.jspdf;
 
 // --- 4. State & localStorage ---
 const categoryKeys = ["acquisition", "behaviour", "conversion", "loyalty"];
 const appState = {
     categories: {
-        // De basisstructuur voor acquisitie
         acquisition: {
             title: "Acquisition",
             includeInPdf: true,
@@ -24,10 +23,18 @@ const appState = {
 // Initialiseer de andere categorieën met de basisstructuur
 categoryKeys.forEach(key => {
     if (key !== 'acquisition') {
+        // Zorg voor een diepe kopie van de arrays/objecten in de state
         appState.categories[key] = {
-            ...JSON.parse(JSON.stringify(appState.categories.acquisition)), // Diepe kopie maken
             title: key.charAt(0).toUpperCase() + key.slice(1),
-            datasetTitle: `${key.charAt(0).toUpperCase() + key.slice(1)} Data`,
+            includeInPdf: true,
+            datasetTitle: "Onbekende dataset",
+            columns: [],
+            columnVisibility: {},
+            rows: [],
+            metricColumn: null,
+            sortColumn: null,
+            sortDirection: 'asc',
+            chartInstance: null
         };
     }
 });
@@ -46,11 +53,11 @@ function loadState() {
     if (!raw) return;
     try {
         const parsed = JSON.parse(raw);
-        // Veilige merge van de geladen state
+        // Merge parsed in appState, behoud chartInstance
         categoryKeys.forEach(key => {
             if (parsed.categories[key]) {
                 const currentChartInstance = appState.categories[key].chartInstance;
-                // Merge de geladen eigenschappen, behalve chartInstance
+                // Veilige merge van de geladen state, zodat nieuwe eigenschappen niet missen
                 appState.categories[key] = { ...appState.categories[key], ...parsed.categories[key] };
                 appState.categories[key].chartInstance = currentChartInstance;
             }
@@ -65,18 +72,20 @@ function loadState() {
 // --- 3. CSV-parsing (Google Analytics exports) ---
 
 /**
- * Parsed een ruwe Google Analytics CSV tekst met Papa Parse.
+ * Parsed een ruwe Google Analytics CSV tekst.
  * @param {string} text - De ruwe CSV tekst.
  * @returns {{header: string[], data: object[]}} De geparste header en data.
  */
 function parseGoogleAnalyticsCsv(text) {
+    // CRUCIALE OPLOSSING: Papa Parse moet hier beschikbaar zijn.
     if (typeof Papa === 'undefined') {
         console.error("Papa Parse is niet geladen. Controleer de CDN in index.html.");
         return { header: [], data: [] };
     }
-    
+
     const rows = text.split(/\r?\n/);
     let header = [];
+    let headerFound = false;
     let headerRowIndex = -1;
 
     // 1. Zoek de header: de eerste niet-lege, niet-commentaar (#) regel met komma's
@@ -89,14 +98,15 @@ function parseGoogleAnalyticsCsv(text) {
             // Gebruik Papa Parse om de headerrij te parsen
             const parseResult = Papa.parse(line, { header: false, skipEmptyLines: true });
             if (parseResult.data.length > 0 && parseResult.data[0].length > 0) {
-                 // De header rij is het eerste array in parseResult.data
+                // De header rij is het eerste array in parseResult.data
                 header = parseResult.data[0].map(h => h.trim().replace(/^"|"$/g, ''));
+                headerFound = true;
                 break;
             }
         }
     }
 
-    if (headerRowIndex === -1) {
+    if (!headerFound) {
         return { header: [], data: [] };
     }
 
@@ -105,20 +115,19 @@ function parseGoogleAnalyticsCsv(text) {
     const parseResult = Papa.parse(dataText, {
         header: false,
         skipEmptyLines: true,
-        // Alleen rijen parsen die niet met # beginnen
-        comments: '#',
+        // We gebruiken een simpele filter om commentaarrijen te negeren
         delimiter: ',',
     });
 
     const data = [];
     if (parseResult.data) {
-        // Gebruik een willekeurige ID-generator voor unieke rijen
+        let uniqueIdCounter = Date.now();
         for (const rowValues of parseResult.data) {
-             // Zorg dat de rij het juiste aantal kolommen heeft en niet leeg is
-            if (rowValues.length === header.length && rowValues.some(v => v.trim() !== "")) {
-                const rowObj = {};
+            // Controleer of de rij het juiste aantal kolommen heeft en niet leeg/commentaar is
+            if (rowValues.length === header.length && rowValues.some(v => String(v).trim() !== "") && !String(rowValues[0]).trim().startsWith("#")) {
+                const rowObj = { id: `row-${uniqueIdCounter++}-${Math.random().toString(36).substring(2, 4)}`, data: {}, selected: true };
                 header.forEach((col, i) => {
-                    rowObj[col] = rowValues[i] !== undefined ? String(rowValues[i]).trim() : "";
+                    rowObj.data[col] = rowValues[i] !== undefined ? String(rowValues[i]).trim() : "";
                 });
                 data.push(rowObj);
             }
@@ -131,24 +140,25 @@ function parseGoogleAnalyticsCsv(text) {
 
 /**
  * Kijkt welke kolommen numerieke data bevatten.
- * @param {object[]} rows - De datasetrijen (de ruwe objecten met data).
+ * @param {object[]} rows - De datasetrijen (de state-objecten, niet alleen de data).
  * @returns {string[]} Lijst van kolomnamen die numeriek zijn.
  */
 function getNumericColumns(rows) {
     if (rows.length === 0) return [];
-    const allColumns = Object.keys(rows[0].data);
+    
+    // Gebruik de data-objecten voor de analyse
+    const dataRows = rows.map(r => r.data || r); 
+    const allColumns = Object.keys(dataRows[0] || {});
     const numericColumns = [];
 
-    // Test de eerste 100 rijen om te bepalen of een kolom numeriek is
-    const testRows = rows.slice(0, 100);
+    const testRows = dataRows.slice(0, 100);
 
     for (const col of allColumns) {
         let numericCount = 0;
         let nonNumericCount = 0;
 
         for (const row of testRows) {
-            // Verwijder % en gebruik punt als decimaalscheiding
-            const value = String(row.data[col]).replace(/%/g, '').replace(/,/g, '.');
+            const value = String(row[col] || '').replace(/%/g, '').replace(/,/g, '.');
             if (value === "") continue;
 
             if (!isNaN(Number(value)) && isFinite(Number(value))) {
@@ -158,7 +168,6 @@ function getNumericColumns(rows) {
             }
         }
 
-        // Als 70% of meer van de niet-lege waarden numeriek is, beschouw het als een metriek.
         if (numericCount > 0 && (numericCount / (numericCount + nonNumericCount)) > 0.7) {
             numericColumns.push(col);
         }
@@ -167,16 +176,14 @@ function getNumericColumns(rows) {
 }
 
 /**
- * Berekent de totaalrij (som voor numerieke kolommen, 'Totaal' of leeg voor andere).
+ * Berekent de totaalrij.
  * @param {object[]} rows - De datasetrijen (inclusief state: {id, data, selected}).
  * @param {string[]} visibleColumns - De kolommen die zichtbaar zijn.
  * @returns {object} De totaalrij.
  */
 function computeTotals(rows, visibleColumns) {
     const totalRow = {};
-    // Haal de data-objecten uit de state-objecten
-    const dataRows = rows.map(r => r.data);
-    const numericColumns = getNumericColumns(dataRows);
+    const numericColumns = getNumericColumns(rows);
 
     // Initialiseer totalen
     visibleColumns.forEach(col => {
@@ -189,8 +196,8 @@ function computeTotals(rows, visibleColumns) {
 
     // Bereken de som
     rows.forEach(row => {
-        // [CORRECTIE 3] Alleen geselecteerde rijen meenemen in de totaalrij
-        if (!row.selected) return;
+        // FIX: Alleen geselecteerde rijen meenemen in de totaalrij
+        if (!row.selected) return; 
 
         visibleColumns.forEach(col => {
             if (numericColumns.includes(col)) {
@@ -214,9 +221,6 @@ function computeTotals(rows, visibleColumns) {
 
 /**
  * Handle de upload van één of meerdere CSV-bestanden.
- * @param {string} categoryKey - De categorie waar de CSV's bij horen.
- * @param {FileList} fileList - De FileList van de input.
- * @param {boolean} clearExisting - Moeten bestaande rijen gewist worden?
  */
 async function handleCsvUpload(categoryKey, fileList, clearExisting) {
     const category = appState.categories[categoryKey];
@@ -224,35 +228,33 @@ async function handleCsvUpload(categoryKey, fileList, clearExisting) {
     let newHeader = [];
     let firstFileName = null;
 
-    // Reset de status indien we nieuwe data inladen
-    const initialLoad = category.rows.length === 0 || clearExisting;
+    // Reset status om aan te geven dat we bezig zijn
+    const statusEl = document.getElementById('load-status');
+    if (statusEl) statusEl.textContent = "Bestand(en) inladen en parsen...";
 
     if (clearExisting) {
         category.rows = [];
-        category.columns = [];
-        category.columnVisibility = {};
-        category.metricColumn = null;
     }
 
-    // Lees en parse alle bestanden
     for (let i = 0; i < fileList.length; i++) {
         const file = fileList[i];
         if (file.type !== 'text/csv' && !file.name.toLowerCase().endsWith('.csv')) continue;
 
         if (firstFileName === null) {
-            firstFileName = file.name.replace(/\.csv$/i, '').trim();
+            firstFileName = file.name;
         }
 
         const text = await file.text();
         const { header, data } = parseGoogleAnalyticsCsv(text);
 
         if (data.length > 0) {
-            // Update/zet de header
             if (newHeader.length === 0) {
                 newHeader = header;
-            } else if (JSON.stringify(newHeader) !== JSON.stringify(header)) {
-                console.warn(`Header van ${file.name} is anders dan de eerste CSV. Deze wordt overgeslagen.`);
-                continue;
+            } else {
+                if (JSON.stringify(newHeader) !== JSON.stringify(header)) {
+                    console.warn(`Header van ${file.name} is anders dan de eerste CSV. Deze wordt overgeslagen.`);
+                    continue;
+                }
             }
             newRows.push(...data);
         }
@@ -262,32 +264,39 @@ async function handleCsvUpload(categoryKey, fileList, clearExisting) {
         // Vorm de ruwe data om tot state-rijen
         const rowsWithState = newRows.map(dataObj => ({
             id: `row-${categoryKey}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-            data: dataObj,
+            data: dataObj.data, // row.data is nu het data-object uit Papa Parse
             selected: true // Standaard zijn alle nieuwe rijen geselecteerd
         }));
+        
+        // Zorg dat de unieke ID en selected status behouden blijven
+        category.rows.push(...rowsWithState); 
 
-        category.rows.push(...rowsWithState);
-
-        if (initialLoad) {
+        // Update kolommen en zichtbaarheid (alleen als dit de eerste upload is)
+        if (category.columns.length === 0 || clearExisting) {
             category.columns = newHeader;
             category.columnVisibility = newHeader.reduce((acc, col) => {
                 acc[col] = true; // Standaard alles zichtbaar
                 return acc;
             }, {});
-            category.datasetTitle = firstFileName || category.datasetTitle;
+            category.datasetTitle = firstFileName.replace(/\.csv$/i, '').trim() || category.datasetTitle;
 
             // Bepaal de eerste numerieke kolom als standaard metriek
-            const dataRows = category.rows.map(r => r.data);
-            const numericCols = getNumericColumns(dataRows);
+            const numericCols = getNumericColumns(category.rows);
             category.metricColumn = numericCols.length > 0 ? numericCols[0] : null;
         }
 
         saveState();
-        renderCategory(categoryKey);
+        renderAll();
+        if (statusEl) statusEl.textContent = `${newRows.length} rijen geladen in ${category.title}.`;
+
+    } else {
+        if (statusEl) statusEl.textContent = `Geen geldige data gevonden.`;
     }
 }
 
 // --- 5. Rendering & interactie ---
+
+// ... (renderChartForCategory en sortData blijven hetzelfde)
 
 /**
  * Render de Chart.js grafiek voor een categorie.
@@ -295,10 +304,9 @@ async function handleCsvUpload(categoryKey, fileList, clearExisting) {
  */
 function renderChartForCategory(categoryKey) {
     const category = appState.categories[categoryKey];
-    const canvasEl = document.getElementById(`chart-canvas-${categoryKey}`);
+    const chartContainer = document.getElementById(`chart-canvas-${categoryKey}`);
 
-    // Als de grafiek niet bestaat, vernietig dan de instantie
-    if (!canvasEl || !category.metricColumn || category.rows.length === 0) {
+    if (!chartContainer || !category.metricColumn || category.rows.length === 0) {
         if (category.chartInstance) {
             category.chartInstance.destroy();
             category.chartInstance = null;
@@ -309,9 +317,7 @@ function renderChartForCategory(categoryKey) {
     const selectedRows = category.rows.filter(r => r.selected);
     const metric = category.metricColumn;
 
-    // Bepaal de X-as: gebruik de eerste dimensiekolom, of anders een index.
-    const dataRows = category.rows.map(r => r.data);
-    const numericColumns = getNumericColumns(dataRows);
+    const numericColumns = getNumericColumns(category.rows);
     const dimensionColumns = category.columns.filter(col => !numericColumns.includes(col));
     const xColumn = dimensionColumns.length > 0 ? dimensionColumns[0] : null;
 
@@ -329,14 +335,13 @@ function renderChartForCategory(categoryKey) {
         return isNaN(Number(val)) ? 0 : Number(val);
     });
 
-
     // Vernietig de oude instantie als deze bestaat
     if (category.chartInstance) {
         category.chartInstance.destroy();
     }
     
     // Nieuwe grafiek maken
-    const ctx = canvasEl.getContext('2d');
+    const ctx = chartContainer.getContext('2d');
     const newChart = new Chart(ctx, {
         type: 'line',
         data: {
@@ -385,7 +390,6 @@ function renderChartForCategory(categoryKey) {
     category.chartInstance = newChart;
 }
 
-
 /**
  * Sorteer de rijen in de state.
  * @param {string} categoryKey - De categorie sleutel.
@@ -393,8 +397,7 @@ function renderChartForCategory(categoryKey) {
  */
 function sortData(categoryKey, column) {
     const category = appState.categories[categoryKey];
-    const dataRows = category.rows.map(r => r.data);
-    const numericColumns = getNumericColumns(dataRows);
+    const numericColumns = getNumericColumns(category.rows);
 
     let direction = 'asc';
     if (category.sortColumn === column) {
@@ -414,7 +417,16 @@ function sortData(categoryKey, column) {
              // Numerieke sortering
             const numA = Number(String(aVal).replace(/%/g, '').replace(/,/g, '.'));
             const numB = Number(String(bVal).replace(/%/g, '').replace(/,/g, '.'));
-            comparison = numA - numB;
+            
+            if (!isNaN(numA) && !isNaN(numB)) {
+                comparison = numA - numB;
+            } else if (isNaN(numA) && !isNaN(numB)) {
+                 comparison = 1; // Ongeldige A komt na geldige B
+            } else if (!isNaN(numA) && isNaN(numB)) {
+                 comparison = -1; // Geldige A komt voor ongeldige B
+            } else {
+                 comparison = String(aVal).localeCompare(String(bVal)); // Fallback op string
+            }
         } else {
              // Alfabetische sortering
             comparison = String(aVal).localeCompare(String(bVal));
@@ -430,21 +442,19 @@ function sortData(categoryKey, column) {
 
 /**
  * Render de HTML voor één categoriepaneel op basis van de state.
- * @param {string} categoryKey - De categorie sleutel.
  */
 function renderCategory(categoryKey) {
     const category = appState.categories[categoryKey];
     const container = document.getElementById(`panel-${categoryKey}`);
 
     if (!container) return;
+    
+    // Zorg dat de container de juiste klasse heeft (voor de styling)
+    container.className = 'category-panel';
 
     const visibleColumns = category.columns.filter(col => category.columnVisibility[col]);
     const totalRow = category.rows.length > 0 ? computeTotals(category.rows, visibleColumns) : {};
-    const dataRows = category.rows.map(r => r.data);
-    const numericColumns = getNumericColumns(dataRows);
-    
-    // Zorg ervoor dat de container de juiste klasse heeft voor de styling
-    container.className = 'category-panel';
+    const numericColumns = getNumericColumns(category.rows);
 
     // Bovenste gedeelte van het paneel: Titel, PDF-checkbox
     let html = `
@@ -457,15 +467,15 @@ function renderCategory(categoryKey) {
         </div>
     `;
 
-    // CSV upload
+    // CSV upload (Gebruikt <label for="ID"> en <input type="file" id="ID">)
     html += `
         <div class="file-input-wrapper">
-            <label class="button" style="display: flex; align-items: center; gap: 5px;">
-                CSV inladen
-                <input type="file" id="csv-upload-${categoryKey}" data-category="${categoryKey}" data-mode="clear" accept=".csv" multiple style="display: none;">
+            <label for="csv-upload-${categoryKey}" class="button">
+                CSV inladen (file)
+                <input type="file" id="csv-upload-${categoryKey}" data-category="${categoryKey}" accept=".csv" multiple style="display: none;">
             </label>
             ${category.rows.length > 0 ? `
-                <label class="button" style="display: flex; align-items: center; gap: 5px;">
+                <label for="csv-add-${categoryKey}" class="button">
                     Week toevoegen (CSV)
                     <input type="file" id="csv-add-${categoryKey}" data-category="${categoryKey}" data-mode="add" accept=".csv" multiple style="display: none;">
                 </label>
@@ -474,13 +484,14 @@ function renderCategory(categoryKey) {
     `;
 
     if (category.rows.length > 0) {
+        // ... (rest van de rendering voor instellingen en tabel) ...
         // Instellingen: Titel, Kolom-instellingen
         html += `
             <div class="settings-section">
                 <h3>Dataset Instellingen</h3>
                 <p>
                     <label>Dataset-titel:
-                        <input type="text" data-category="${categoryKey}" id="dataset-title-${categoryKey}" value="${category.datasetTitle}" style="width: 100%;">
+                        <input type="text" data-category="${categoryKey}" id="dataset-title-${categoryKey}" value="${category.datasetTitle}" style="width: 300px;">
                     </label>
                 </p>
 
@@ -542,7 +553,7 @@ function renderCategory(categoryKey) {
                             ${availableMetrics.map(col => `
                                 <option value="${col}" ${category.metricColumn === col ? 'selected' : ''}>${col}</option>
                             `).join('')}
-                            ${availableMetrics.length === 0 ? '<option value="" disabled selected>Kies metriek...</option>' : ''}
+                            ${availableMetrics.length === 0 ? '<option value="" disabled selected>Geen numerieke kolommen</option>' : ''}
                         </select>
                     </label>
                 </div>
@@ -563,6 +574,7 @@ function renderCategory(categoryKey) {
     }
 }
 
+
 /**
  * Render alle categorieën en hecht event handlers.
  */
@@ -575,14 +587,13 @@ function renderAll() {
 
 /**
  * Hecht event handlers aan een categoriepaneel.
- * @param {string} categoryKey - De categorie sleutel.
  */
 function attachCategoryEventHandlers(categoryKey) {
     const container = document.getElementById(`panel-${categoryKey}`);
     if (!container) return;
 
     // PDF Include checkbox
-    container.querySelector('.pdf-include-toggle')?.addEventListener('change', (e) => {
+    container.querySelector(`#pdf-include-${categoryKey}`)?.addEventListener('change', (e) => {
         appState.categories[categoryKey].includeInPdf = e.target.checked;
         saveState();
     });
@@ -621,7 +632,7 @@ function attachCategoryEventHandlers(categoryKey) {
             if (row) {
                 row.selected = e.target.checked;
                 saveState();
-                // Rerenderen is nodig om Totaalrij te updaten. Grafiek wordt automatisch geupdate.
+                // Rerenderen is nodig om de totaalrij te updaten. Grafiek wordt ook geüpdatet.
                 renderCategory(categoryKey); 
             }
         });
@@ -673,7 +684,6 @@ async function generatePdf() {
             scale: 2, // Hogere schaal voor betere resolutie
             allowTaint: true,
             useCORS: true,
-            // Scroll de tabel container naar boven voor de screenshot
             onclone: (doc) => {
                 const tableContainer = doc.getElementById(`panel-${key}`).querySelector('.data-table-container');
                 if (tableContainer) {
@@ -721,10 +731,9 @@ async function generatePdf() {
 function init() {
     loadState();
     renderAll();
-    
-    // [CORRECTIE 2] Koppel de handler aan de juiste knop ID
+    // FIX: Koppel de handler aan de juiste knop ID ('export-pdf-btn')
     document.getElementById('export-pdf-btn').addEventListener('click', generatePdf);
 }
 
-// Gebruik DOMContentLoaded om ervoor te zorgen dat alle elementen en scripts geladen zijn
+// Start de app
 document.addEventListener('DOMContentLoaded', init);
