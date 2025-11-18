@@ -1,457 +1,220 @@
-/* ===== RESET & BASE ===== */
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
+:root {
+    --primary-color: #007bff;
+    --secondary-color: #6c757d;
+    --success-color: #28a745;
+    --bg-light: #f8f9fa;
+    --bg-card: #ffffff;
+    --border-color: #dee2e6;
+    --font-color: #212529;
+    --hover-bg: #e9ecef;
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-    background: #f5f7fa;
-    color: #2c3e50;
-    line-height: 1.6;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-light);
+    color: var(--font-color);
 }
 
-/* ===== HEADER ===== */
-.main-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    padding: 1.5rem 2rem;
+.header {
+    background-color: var(--bg-card);
+    padding: 20px 30px;
+    border-bottom: 1px solid var(--border-color);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    position: sticky;
-    top: 0;
-    z-index: 100;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
-.main-header h1 {
-    font-size: 1.8rem;
-    font-weight: 600;
-}
-
-/* ===== MAIN CONTENT ===== */
-.main-content {
-    max-width: 1600px;
-    margin: 0 auto;
-    padding: 2rem;
-}
-
-/* ===== BUTTONS ===== */
-.btn {
-    padding: 0.6rem 1.5rem;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 0.95rem;
-    font-weight: 500;
-    transition: all 0.3s ease;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.btn-primary {
-    background: white;
-    color: #667eea;
-}
-
-.btn-primary:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(255, 255, 255, 0.3);
-}
-
-.btn-secondary {
-    background: white;
-    color: #667eea;
-    border: 2px solid #667eea;
-}
-
-.btn-secondary:hover {
-    background: #667eea;
-    color: white;
-}
-
-.btn-danger {
-    background: #e74c3c;
-    color: white;
-    font-size: 0.85rem;
-    padding: 0.4rem 1rem;
-}
-
-.btn-danger:hover {
-    background: #c0392b;
-}
-
-/* ===== CATEGORY SECTIONS ===== */
-.category-section {
-    background: white;
-    border-radius: 12px;
-    padding: 2rem;
-    margin-bottom: 2rem;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-}
-
-.category-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1.5rem;
-    padding-bottom: 1rem;
-    border-bottom: 3px solid #e0e6ed;
-}
-
-.category-header h2 {
+.header h1 {
+    margin: 0;
     font-size: 1.5rem;
-    color: #2c3e50;
 }
 
-/* ===== DATASETS GRID ===== */
-.datasets-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
-    gap: 1.5rem;
-    min-height: 100px;
-}
-
-.datasets-grid:empty::after {
-    content: 'Nog geen datasets. Upload een CSV om te beginnen.';
-    grid-column: 1 / -1;
-    text-align: center;
-    color: #95a5a6;
-    padding: 2rem;
-    font-style: italic;
-}
-
-/* ===== DATASET CARD ===== */
-.dataset-card {
-    background: #fafbfc;
-    border: 2px solid #e0e6ed;
-    border-radius: 8px;
-    padding: 1.5rem;
-    transition: all 0.3s ease;
-}
-
-.dataset-card:hover {
-    border-color: #667eea;
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.1);
-}
-
-.dataset-card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 1rem;
-}
-
-.dataset-title {
-    flex: 1;
-}
-
-.dataset-name {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #2c3e50;
-    margin-bottom: 0.5rem;
-}
-
-.dataset-meta {
-    font-size: 0.85rem;
-    color: #95a5a6;
-}
-
-.dataset-actions {
-    display: flex;
-    gap: 0.5rem;
-}
-
-/* ===== MINI CHART PREVIEW ===== */
-.mini-chart-container {
-    background: white;
-    padding: 1rem;
-    border-radius: 6px;
-    margin: 1rem 0;
-    border: 1px solid #e0e6ed;
-}
-
-.mini-chart-canvas {
-    max-height: 150px;
-}
-
-/* ===== EXPANDABLE SECTION ===== */
-.expandable-section {
-    margin-top: 1rem;
-    border-top: 1px solid #e0e6ed;
-    padding-top: 1rem;
-}
-
-.expand-toggle {
-    background: #f8f9fa;
-    border: 1px solid #e0e6ed;
-    padding: 0.5rem 1rem;
-    width: 100%;
-    text-align: left;
+/* Knoppen en inputs */
+button, input[type="file"], select {
+    padding: 8px 15px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--bg-card);
     cursor: pointer;
-    border-radius: 6px;
-    font-weight: 500;
-    color: #5a6c7d;
+    transition: background-color 0.2s, border-color 0.2s;
+    font-size: 14px;
+}
+
+button:hover {
+    background-color: var(--hover-bg);
+}
+
+#generate-pdf-btn {
+    background-color: var(--success-color);
+    color: white;
+    border-color: var(--success-color);
+}
+
+#generate-pdf-btn:hover {
+    background-color: #218838;
+}
+
+/* Dashboard Grid */
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    padding: 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+@media (max-width: 992px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Categorie Paneel */
+.category-panel {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+.panel-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    margin-bottom: 15px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 10px;
 }
 
-.expand-toggle:hover {
-    background: #e8ecf1;
+.panel-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
 }
 
-.expand-toggle::after {
-    content: '▼';
-    transition: transform 0.3s ease;
+.panel-content h3 {
+    margin-top: 20px;
+    margin-bottom: 10px;
+    font-size: 1rem;
+    color: var(--primary-color);
 }
 
-.expand-toggle.expanded::after {
-    transform: rotate(180deg);
+.file-input-wrapper {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
 }
 
-.expandable-content {
-    max-height: 0;
-    overflow: hidden;
-    transition: max-height 0.3s ease;
+/* Dataset Instellingen */
+.settings-section {
+    padding: 15px;
+    border: 1px dashed var(--border-color);
+    border-radius: 4px;
+    margin-bottom: 20px;
 }
 
-.expandable-content.expanded {
-    max-height: 2000px;
-    padding-top: 1rem;
+.settings-section p {
+    margin-top: 0;
+    font-size: 0.9rem;
 }
 
-/* ===== TABLE ===== */
-.data-table-container {
-    overflow-x: auto;
-    margin: 1rem 0;
-    border-radius: 6px;
-    border: 1px solid #e0e6ed;
-    max-height: 400px;
+.column-visibility-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    max-height: 150px;
     overflow-y: auto;
+    padding: 5px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--bg-light);
+}
+
+.column-visibility-list label {
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+/* Tabel */
+.data-table-container {
+    max-height: 400px;
+    overflow: auto;
+    margin-bottom: 20px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
 }
 
 .data-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.85rem;
+    font-size: 0.9rem;
 }
 
-.data-table thead {
-    background: #f8f9fa;
-    position: sticky;
-    top: 0;
-    z-index: 10;
+.data-table th, .data-table td {
+    padding: 8px 12px;
+    border-right: 1px solid var(--border-color);
 }
 
 .data-table th {
-    padding: 0.75rem 0.5rem;
+    background-color: var(--hover-bg);
+    color: var(--font-color);
     text-align: left;
-    font-weight: 600;
-    color: #2c3e50;
-    border-bottom: 2px solid #e0e6ed;
     cursor: pointer;
-    user-select: none;
-    white-space: nowrap;
-    font-size: 0.8rem;
+    position: sticky;
+    top: 0; /* Sticky header */
+    z-index: 10;
+    border-bottom: 2px solid var(--primary-color);
 }
 
-.data-table th:hover {
-    background: #e8ecf1;
+.data-table th:last-child, .data-table td:last-child {
+    border-right: none;
 }
 
-.data-table th.sortable::after {
-    content: ' ⇅';
-    opacity: 0.3;
-    font-size: 0.7rem;
-}
-
-.data-table th.sort-asc::after {
-    content: ' ▲';
-    opacity: 1;
-}
-
-.data-table th.sort-desc::after {
-    content: ' ▼';
-    opacity: 1;
-}
-
-.data-table td {
-    padding: 0.6rem 0.5rem;
-    border-bottom: 1px solid #e0e6ed;
-    color: #5a6c7d;
-    font-size: 0.8rem;
+.data-table tbody tr:nth-child(odd) {
+    background-color: var(--bg-light); /* Zebra stripes */
 }
 
 .data-table tbody tr:hover {
-    background: #f8f9fa;
+    background-color: var(--hover-bg);
 }
 
-.data-table tfoot {
-    background: #fff9e6;
-    font-weight: 600;
+.total-row {
+    font-weight: bold;
+    background-color: #fff3cd !important; /* Opvallende kleur voor totaalrij */
     position: sticky;
-    bottom: 0;
+    top: 0; /* Sticky total row */
+    z-index: 11;
+    border-bottom: 2px solid #ffc107;
 }
 
-.data-table tfoot td {
-    border-top: 2px solid #f39c12;
-    color: #2c3e50;
+.sort-indicator {
+    margin-left: 5px;
+    font-size: 0.7rem;
 }
 
-/* ===== COLUMN VISIBILITY ===== */
-.column-visibility {
-    margin: 1rem 0;
-    padding: 1rem;
-    background: #f8f9fa;
-    border-radius: 6px;
-}
-
-.column-visibility h4 {
-    font-size: 0.85rem;
-    margin-bottom: 0.5rem;
-    color: #5a6c7d;
-    font-weight: 600;
-}
-
-.column-checkboxes {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-}
-
-.checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    cursor: pointer;
-    font-size: 0.8rem;
-    color: #5a6c7d;
-}
-
-.checkbox-label input[type="checkbox"] {
-    cursor: pointer;
-    width: 14px;
-    height: 14px;
-}
-
-/* ===== FULL CHART ===== */
-.full-chart-container {
-    background: white;
-    padding: 1rem;
-    border-radius: 6px;
-    margin: 1rem 0;
-    border: 1px solid #e0e6ed;
+/* Grafiek */
+.chart-container {
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid var(--border-color);
 }
 
 .chart-controls {
-    margin-bottom: 1rem;
-    padding: 1rem;
-    background: #f8f9fa;
-    border-radius: 6px;
-}
-
-.chart-controls h4 {
-    font-size: 0.85rem;
-    margin-bottom: 0.5rem;
-    color: #5a6c7d;
-    font-weight: 600;
-}
-
-.metric-checkboxes {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-}
-
-/* ===== COMMENTS ===== */
-.comments-section {
-    margin-top: 1rem;
-    padding: 1rem;
-    background: #fff9e6;
-    border-radius: 6px;
-    border-left: 4px solid #f39c12;
-}
-
-.comments-section label {
-    display: block;
-    font-weight: 600;
-    margin-bottom: 0.5rem;
-    color: #2c3e50;
-    font-size: 0.85rem;
-}
-
-.comments-textarea {
-    width: 100%;
-    min-height: 60px;
-    padding: 0.75rem;
-    border: 1px solid #e0e6ed;
-    border-radius: 6px;
-    font-family: inherit;
-    font-size: 0.85rem;
-    resize: vertical;
-}
-
-.comments-textarea:focus {
-    outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-}
-
-/* ===== CHECKBOX WITH PDF ===== */
-.pdf-checkbox {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.85rem;
-    color: #5a6c7d;
-    margin-top: 1rem;
+    gap: 10px;
+    margin-bottom: 10px;
+    font-size: 0.9rem;
 }
 
-.pdf-checkbox input[type="checkbox"] {
-    width: 16px;
-    height: 16px;
+.chart-controls select {
+    padding: 5px;
 }
 
-/* ===== RESPONSIVE ===== */
-@media (max-width: 768px) {
-    .datasets-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .category-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 1rem;
-    }
-    
-    .main-header {
-        flex-direction: column;
-        gap: 1rem;
-    }
-}
-
-/* ===== PRINT/PDF STYLES ===== */
-@media print {
-    body {
-        background: white;
-    }
-    
-    .main-header,
-    .btn,
-    .upload-btn,
-    .dataset-actions,
-    .column-visibility,
-    .chart-controls,
-    .expand-toggle {
-        display: none !important;
-    }
-    
-    .expandable-content {
-        max-height: none !important;
-    }
+.chart-canvas {
+    height: 200px; /* Vaste hoogte voor de preview grafiek */
 }
