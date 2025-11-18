@@ -3,25 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Google Analytics Dashboard</title>
+    <title>GA Dashboard - Pure JS</title>
     <link rel="stylesheet" href="styles.css">
 
-    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-</head>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    </head>
 <body>
-    <header class="header">
-        <h1>📊 Analytics Dashboard</h1>
-        <button id="generate-pdf-btn">Exporteer naar PDF</button>
-    </header>
-
-    <div id="app" class="dashboard-grid">
-        <section id="panel-acquisition" class="category-panel"></section>
-        <section id="panel-behaviour" class="category-panel"></section>
-        <section id="panel-conversion" class="category-panel"></section>
-        <section id="panel-loyalty" class="category-panel"></section>
+    <div id="app" class="container">
+        <header class="dashboard-header">
+            <h1>📊 Google Analytics Dashboard</h1>
+            <button id="export-pdf-btn" class="button primary">Exporteer naar PDF</button>
+            <span id="load-status" style="margin-left: 1rem; color: #888;"></span>
+        </header>
+        
+        <main class="dashboard-grid">
+            <section id="panel-acquisition" class="panel"></section>
+            <section id="panel-behaviour" class="panel"></section>
+            <section id="panel-conversion" class="panel"></section>
+            <section id="panel-loyalty" class="panel"></section>
+        </main>
     </div>
 
     <script type="module" src="app.js"></script>
