@@ -1,666 +1,730 @@
-// ===== ANALYTICS DASHBOARD - HERZIENE VERSIE =====
-// Elke categorie heeft zijn eigen upload en datasets
+// Globale variabele voor jsPDF om makkelijker te gebruiken
+const { jsPDF } = window.jspdf;
 
-// ===== APP STATE =====
+// --- 4. State & localStorage ---
+const categoryKeys = ["acquisition", "behaviour", "conversion", "loyalty"];
 const appState = {
     categories: {
-        ACQUISITION: { datasets: [] },
-        BEHAVIOR: { datasets: [] },
-        CONVERSION: { datasets: [] },
-        LOYALTY: { datasets: [] }
+        acquisition: {
+            title: "Acquisition",
+            includeInPdf: true,
+            datasetTitle: "Onbekende dataset",
+            columns: [],
+            columnVisibility: {},
+            rows: [], // { id: string, data: { [col]: value }, selected: boolean }
+            metricColumn: null,
+            sortColumn: null,
+            sortDirection: 'asc', // 'asc' of 'desc'
+            chartInstance: null // Chart.js instantie
+        },
+        behaviour: { ... },
+        conversion: { ... },
+        loyalty: { ... }
     }
 };
 
-// Chart instances
-const chartInstances = {};
-
-// ===== INITIALIZATION =====
-document.addEventListener('DOMContentLoaded', () => {
-    loadState();
-    setupEventListeners();
-    renderAll();
+// Initialiseer de andere categorieën met de basisstructuur
+categoryKeys.forEach(key => {
+    if (key !== 'acquisition') {
+        appState.categories[key] = {
+            ...appState.categories.acquisition,
+            title: key.charAt(0).toUpperCase() + key.slice(1),
+            datasetTitle: "Onbekende dataset",
+            includeInPdf: true
+        };
+    }
 });
 
-// ===== EVENT LISTENERS =====
-function setupEventListeners() {
-    // Upload buttons per categorie
-    document.querySelectorAll('.upload-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const category = btn.dataset.category;
-            document.getElementById(`upload-${category}`).click();
-        });
-    });
-
-    // File uploads
-    ['ACQUISITION', 'BEHAVIOR', 'CONVERSION', 'LOYALTY'].forEach(category => {
-        document.getElementById(`upload-${category}`).addEventListener('change', (e) => {
-            handleCsvUpload(e, category);
-        });
-    });
-
-    // PDF Export
-    document.getElementById('exportPdfBtn').addEventListener('click', generatePdf);
-}
-
-// ===== CSV UPLOAD =====
-function handleCsvUpload(event, category) {
-    const files = event.target.files;
-    
-    Array.from(files).forEach(file => {
-        Papa.parse(file, {
-            header: true,
-            dynamicTyping: true,
-            skipEmptyLines: true,
-            complete: (results) => {
-                addDataset(category, file.name, results.data, results.meta.fields);
-            },
-            error: (error) => {
-                console.error('CSV parse error:', error);
-                alert('Fout bij het inlezen van CSV: ' + error.message);
-            }
-        });
-    });
-
-    event.target.value = '';
-}
-
-// ===== ADD DATASET =====
-function addDataset(category, filename, data, columns) {
-    // Filter irrelevante kolommen (die met < beginnen zijn niet relevant)
-    const relevantColumns = columns.filter(col => !col.startsWith('<'));
-    
-    // Bepaal numerieke kolommen voor grafieken
-    const numericColumns = relevantColumns.filter(col => 
-        isNumericColumn(col, data)
-    );
-
-    const dataset = {
-        id: Date.now() + Math.random(),
-        name: filename.replace('.csv', ''),
-        data: data,
-        allColumns: columns,
-        visibleColumns: [...relevantColumns],
-        selectedMetrics: numericColumns.slice(0, 3), // Max 3 metrics standaard
-        includePdf: true,
-        comments: '',
-        sortColumn: null,
-        sortDirection: 'asc',
-        expanded: false
-    };
-
-    appState.categories[category].datasets.push(dataset);
-    saveState();
-    renderCategory(category);
-}
-
-// ===== CHECK NUMERIC COLUMN =====
-function isNumericColumn(columnName, data) {
-    // Skip duidelijk niet-numerieke kolommen
-    const lowerName = columnName.toLowerCase();
-    if (lowerName.includes('pad') || lowerName.includes('naam') || 
-        lowerName.includes('klasse') || lowerName.includes('pagina')) {
-        return false;
-    }
-
-    const samples = data.slice(0, 10)
-        .map(row => row[columnName])
-        .filter(v => v != null);
-    
-    return samples.some(value => 
-        typeof value === 'number' || !isNaN(parseFloat(value))
-    );
-}
-
-// ===== RENDER ALL =====
-function renderAll() {
-    ['ACQUISITION', 'BEHAVIOR', 'CONVERSION', 'LOYALTY'].forEach(category => {
-        renderCategory(category);
-    });
-}
-
-// ===== RENDER CATEGORY =====
-function renderCategory(category) {
-    const container = document.getElementById(`datasets-${category}`);
-    const datasets = appState.categories[category].datasets;
-
-    if (datasets.length === 0) {
-        container.innerHTML = '';
-        return;
-    }
-
-    container.innerHTML = '';
-
-    datasets.forEach((dataset, index) => {
-        const card = createDatasetCard(dataset, category, index);
-        container.appendChild(card);
-    });
-}
-
-// ===== CREATE DATASET CARD =====
-function createDatasetCard(dataset, category, index) {
-    const card = document.createElement('div');
-    card.className = 'dataset-card';
-
-    card.innerHTML = `
-        <div class="dataset-card-header">
-            <div class="dataset-title">
-                <div class="dataset-name">${dataset.name}</div>
-                <div class="dataset-meta">${dataset.data.length} rijen • ${dataset.visibleColumns.length} kolommen</div>
-            </div>
-            <div class="dataset-actions">
-                <button class="btn btn-danger delete-btn" data-category="${category}" data-index="${index}">
-                    🗑️
-                </button>
-            </div>
-        </div>
-
-        <!-- Mini Chart Preview -->
-        <div class="mini-chart-container">
-            <canvas class="mini-chart-canvas" id="mini-chart-${dataset.id}"></canvas>
-        </div>
-
-        <label class="pdf-checkbox">
-            <input type="checkbox" ${dataset.includePdf ? 'checked' : ''} 
-                   class="include-pdf-check" data-category="${category}" data-index="${index}">
-            Opnemen in PDF rapport
-        </label>
-
-        <!-- Expandable Details -->
-        <div class="expandable-section">
-            <button class="expand-toggle" data-dataset-id="${dataset.id}">
-                Tabel & Opties tonen
-            </button>
-            <div class="expandable-content" id="expand-${dataset.id}">
-                
-                <!-- Column Visibility -->
-                <div class="column-visibility">
-                    <h4>Zichtbare kolommen:</h4>
-                    <div class="column-checkboxes">
-                        ${dataset.visibleColumns.map(col => `
-                            <label class="checkbox-label">
-                                <input type="checkbox" checked 
-                                       data-category="${category}" 
-                                       data-index="${index}" 
-                                       data-column="${col}" 
-                                       class="column-toggle">
-                                ${col}
-                            </label>
-                        `).join('')}
-                    </div>
-                </div>
-
-                <!-- Data Table -->
-                <div class="data-table-container">
-                    <table class="data-table" id="table-${dataset.id}"></table>
-                </div>
-
-                <!-- Chart Controls -->
-                <div class="chart-controls">
-                    <h4>Metrics in grafiek:</h4>
-                    <div class="metric-checkboxes">
-                        ${dataset.visibleColumns.filter(col => isNumericColumn(col, dataset.data)).map(col => `
-                            <label class="checkbox-label">
-                                <input type="checkbox" 
-                                       ${dataset.selectedMetrics.includes(col) ? 'checked' : ''}
-                                       data-category="${category}" 
-                                       data-index="${index}" 
-                                       data-metric="${col}" 
-                                       class="metric-toggle">
-                                ${col}
-                            </label>
-                        `).join('')}
-                    </div>
-                </div>
-
-                <!-- Full Chart -->
-                <div class="full-chart-container">
-                    <canvas id="chart-${dataset.id}"></canvas>
-                </div>
-
-                <!-- Comments -->
-                <div class="comments-section">
-                    <label>Opmerkingen:</label>
-                    <textarea class="comments-textarea" 
-                              data-category="${category}" 
-                              data-index="${index}"
-                              placeholder="Voeg opmerkingen toe over deze dataset...">${dataset.comments || ''}</textarea>
-                </div>
-
-            </div>
-        </div>
-    `;
-
-    // Setup event listeners
-    setupCardListeners(card, dataset, category, index);
-
-    // Render charts en table
-    renderMiniChart(dataset);
-    renderTable(dataset);
-    renderFullChart(dataset);
-
-    return card;
-}
-
-// ===== SETUP CARD LISTENERS =====
-function setupCardListeners(card, dataset, category, index) {
-    // Delete button
-    card.querySelector('.delete-btn').addEventListener('click', () => {
-        if (confirm('Dataset verwijderen?')) {
-            destroyCharts(dataset);
-            appState.categories[category].datasets.splice(index, 1);
-            saveState();
-            renderCategory(category);
-        }
-    });
-
-    // PDF checkbox
-    card.querySelector('.include-pdf-check').addEventListener('change', (e) => {
-        dataset.includePdf = e.target.checked;
-        saveState();
-    });
-
-    // Expand/collapse
-    const toggleBtn = card.querySelector('.expand-toggle');
-    const content = card.querySelector('.expandable-content');
-    
-    toggleBtn.addEventListener('click', () => {
-        dataset.expanded = !dataset.expanded;
-        toggleBtn.classList.toggle('expanded', dataset.expanded);
-        content.classList.toggle('expanded', dataset.expanded);
-        
-        if (dataset.expanded) {
-            // Re-render charts when expanded
-            setTimeout(() => {
-                renderFullChart(dataset);
-            }, 100);
-        }
-        saveState();
-    });
-
-    // Set initial state
-    if (dataset.expanded) {
-        toggleBtn.classList.add('expanded');
-        content.classList.add('expanded');
-    }
-
-    // Column toggles
-    card.querySelectorAll('.column-toggle').forEach(checkbox => {
-        checkbox.addEventListener('change', (e) => {
-            const column = e.target.dataset.column;
-            if (!e.target.checked) {
-                dataset.visibleColumns = dataset.visibleColumns.filter(c => c !== column);
-            } else {
-                if (!dataset.visibleColumns.includes(column)) {
-                    dataset.visibleColumns.push(column);
-                }
-            }
-            saveState();
-            renderTable(dataset);
-        });
-    });
-
-    // Metric toggles
-    card.querySelectorAll('.metric-toggle').forEach(checkbox => {
-        checkbox.addEventListener('change', (e) => {
-            const metric = e.target.dataset.metric;
-            if (e.target.checked) {
-                if (!dataset.selectedMetrics.includes(metric)) {
-                    dataset.selectedMetrics.push(metric);
-                }
-            } else {
-                dataset.selectedMetrics = dataset.selectedMetrics.filter(m => m !== metric);
-            }
-            saveState();
-            renderMiniChart(dataset);
-            renderFullChart(dataset);
-        });
-    });
-
-    // Comments
-    card.querySelector('.comments-textarea').addEventListener('input', (e) => {
-        dataset.comments = e.target.value;
-        saveState();
-    });
-}
-
-// ===== RENDER TABLE =====
-function renderTable(dataset) {
-    const table = document.getElementById(`table-${dataset.id}`);
-    if (!table) return;
-
-    let sortedData = [...dataset.data];
-    if (dataset.sortColumn) {
-        sortedData.sort((a, b) => {
-            const aVal = a[dataset.sortColumn];
-            const bVal = b[dataset.sortColumn];
-            
-            if (typeof aVal === 'number' && typeof bVal === 'number') {
-                return dataset.sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
-            }
-            
-            const aStr = String(aVal || '');
-            const bStr = String(bVal || '');
-            return dataset.sortDirection === 'asc' 
-                ? aStr.localeCompare(bStr)
-                : bStr.localeCompare(aStr);
-        });
-    }
-
-    const totals = calculateTotals(dataset);
-
-    let html = '<thead><tr>';
-    dataset.visibleColumns.forEach(col => {
-        const sortClass = dataset.sortColumn === col 
-            ? `sort-${dataset.sortDirection}` 
-            : 'sortable';
-        html += `<th class="${sortClass}" data-column="${col}">${col}</th>`;
-    });
-    html += '</tr></thead><tbody>';
-
-    sortedData.forEach(row => {
-        html += '<tr>';
-        dataset.visibleColumns.forEach(col => {
-            const value = row[col] != null ? row[col] : '';
-            html += `<td>${formatValue(value)}</td>`;
-        });
-        html += '</tr>';
-    });
-
-    html += '</tbody><tfoot><tr>';
-    dataset.visibleColumns.forEach(col => {
-        const totalValue = totals[col];
-        html += `<td><strong>${totalValue != null ? 'Σ ' + formatValue(totalValue) : ''}</strong></td>`;
-    });
-    html += '</tr></tfoot>';
-
-    table.innerHTML = html;
-
-    // Sort listeners
-    table.querySelectorAll('th[data-column]').forEach(th => {
-        th.addEventListener('click', () => {
-            const column = th.dataset.column;
-            if (dataset.sortColumn === column) {
-                dataset.sortDirection = dataset.sortDirection === 'asc' ? 'desc' : 'asc';
-            } else {
-                dataset.sortColumn = column;
-                dataset.sortDirection = 'asc';
-            }
-            saveState();
-            renderTable(dataset);
-        });
-    });
-}
-
-// ===== CALCULATE TOTALS =====
-function calculateTotals(dataset) {
-    const totals = {};
-    
-    dataset.visibleColumns.forEach(col => {
-        const values = dataset.data
-            .map(row => row[col])
-            .filter(v => v != null && typeof v === 'number');
-        
-        if (values.length > 0) {
-            // Voor gemiddelde kolommen
-            if (col.toLowerCase().includes('gemiddeld') || 
-                col.toLowerCase().includes('per actieve') ||
-                col.toLowerCase().includes('avg')) {
-                totals[col] = values.reduce((sum, v) => sum + v, 0) / values.length;
-            } else {
-                // Som
-                totals[col] = values.reduce((sum, v) => sum + v, 0);
-            }
-        }
-    });
-    
-    return totals;
-}
-
-// ===== FORMAT VALUE =====
-function formatValue(value) {
-    if (typeof value === 'number') {
-        return value.toLocaleString('nl-NL', { maximumFractionDigits: 2 });
-    }
-    return value;
-}
-
-// ===== RENDER MINI CHART =====
-function renderMiniChart(dataset) {
-    const canvas = document.getElementById(`mini-chart-${dataset.id}`);
-    if (!canvas) return;
-
-    const chartId = `mini-chart-${dataset.id}`;
-    if (chartInstances[chartId]) {
-        chartInstances[chartId].destroy();
-    }
-
-    if (dataset.selectedMetrics.length === 0) {
-        canvas.style.display = 'none';
-        return;
-    }
-    canvas.style.display = 'block';
-
-    const labels = dataset.data.map((row, idx) => {
-        const labelCol = dataset.visibleColumns.find(col => 
-            col.toLowerCase().includes('pad') || 
-            col.toLowerCase().includes('pagina')
-        );
-        return labelCol ? String(row[labelCol]).substring(0, 20) : `Rij ${idx + 1}`;
-    });
-
-    const datasets = dataset.selectedMetrics.map((metric, idx) => {
-        const colors = ['#667eea', '#f39c12', '#e74c3c', '#2ecc71', '#3498db'];
-        return {
-            label: metric,
-            data: dataset.data.map(row => row[metric]),
-            borderColor: colors[idx % colors.length],
-            backgroundColor: colors[idx % colors.length] + '22',
-            tension: 0.3,
-            borderWidth: 2
-        };
-    });
-
-    const ctx = canvas.getContext('2d');
-    chartInstances[chartId] = new Chart(ctx, {
-        type: 'line',
-        data: { labels, datasets },
-        options: {
-            responsive: true,
-            maintainAspectRatio: true,
-            plugins: {
-                legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 10 } } },
-                title: { display: false }
-            },
-            scales: {
-                y: { beginAtZero: true, ticks: { font: { size: 9 } } },
-                x: { ticks: { font: { size: 8 }, maxRotation: 45, minRotation: 45 } }
-            }
-        }
-    });
-}
-
-// ===== RENDER FULL CHART =====
-function renderFullChart(dataset) {
-    const canvas = document.getElementById(`chart-${dataset.id}`);
-    if (!canvas) return;
-
-    const chartId = `chart-${dataset.id}`;
-    if (chartInstances[chartId]) {
-        chartInstances[chartId].destroy();
-    }
-
-    if (dataset.selectedMetrics.length === 0) {
-        canvas.style.display = 'none';
-        return;
-    }
-    canvas.style.display = 'block';
-
-    const labels = dataset.data.map((row, idx) => {
-        const labelCol = dataset.visibleColumns.find(col => 
-            col.toLowerCase().includes('pad') || 
-            col.toLowerCase().includes('pagina')
-        );
-        return labelCol ? String(row[labelCol]) : `Rij ${idx + 1}`;
-    });
-
-    const datasets = dataset.selectedMetrics.map((metric, idx) => {
-        const colors = ['#667eea', '#f39c12', '#e74c3c', '#2ecc71', '#3498db'];
-        return {
-            label: metric,
-            data: dataset.data.map(row => row[metric]),
-            borderColor: colors[idx % colors.length],
-            backgroundColor: colors[idx % colors.length] + '33',
-            tension: 0.3,
-            borderWidth: 3
-        };
-    });
-
-    const ctx = canvas.getContext('2d');
-    chartInstances[chartId] = new Chart(ctx, {
-        type: 'line',
-        data: { labels, datasets },
-        options: {
-            responsive: true,
-            maintainAspectRatio: true,
-            plugins: {
-                legend: { display: true, position: 'top' },
-                title: { display: true, text: dataset.name, font: { size: 14, weight: 'bold' } }
-            },
-            scales: {
-                y: { beginAtZero: true },
-                x: { ticks: { maxRotation: 45, minRotation: 0 } }
-            }
-        }
-    });
-}
-
-// ===== DESTROY CHARTS =====
-function destroyCharts(dataset) {
-    [`mini-chart-${dataset.id}`, `chart-${dataset.id}`].forEach(chartId => {
-        if (chartInstances[chartId]) {
-            chartInstances[chartId].destroy();
-            delete chartInstances[chartId];
-        }
-    });
-}
-
-// ===== PDF GENERATION =====
-async function generatePdf() {
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    let yOffset = 10;
-
-    pdf.setFontSize(20);
-    pdf.text('Analytics Dashboard Rapport', 10, yOffset);
-    yOffset += 10;
-
-    pdf.setFontSize(10);
-    pdf.text(`Gegenereerd: ${new Date().toLocaleString('nl-NL')}`, 10, yOffset);
-    yOffset += 15;
-
-    for (const categoryName of ['ACQUISITION', 'BEHAVIOR', 'CONVERSION', 'LOYALTY']) {
-        const category = appState.categories[categoryName];
-        const includedDatasets = category.datasets.filter(d => d.includePdf);
-
-        if (includedDatasets.length === 0) continue;
-
-        pdf.setFontSize(16);
-        pdf.text(categoryName, 10, yOffset);
-        yOffset += 10;
-
-        for (const dataset of includedDatasets) {
-            if (yOffset > 250) {
-                pdf.addPage();
-                yOffset = 10;
-            }
-
-            pdf.setFontSize(14);
-            pdf.text(dataset.name, 10, yOffset);
-            yOffset += 7;
-
-            // Table
-            const tableEl = document.getElementById(`table-${dataset.id}`);
-            if (tableEl) {
-                try {
-                    const canvas = await html2canvas(tableEl, { scale: 1.5 });
-                    const imgData = canvas.toDataURL('image/png');
-                    const imgWidth = 190;
-                    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-                    
-                    if (yOffset + imgHeight > 280) {
-                        pdf.addPage();
-                        yOffset = 10;
-                    }
-                    
-                    pdf.addImage(imgData, 'PNG', 10, yOffset, imgWidth, Math.min(imgHeight, 150));
-                    yOffset += Math.min(imgHeight, 150) + 5;
-                } catch (e) {
-                    console.error('Error capturing table:', e);
-                }
-            }
-
-            // Chart
-            if (dataset.selectedMetrics.length > 0) {
-                const chartCanvas = document.getElementById(`chart-${dataset.id}`);
-                if (chartCanvas) {
-                    try {
-                        const imgData = chartCanvas.toDataURL('image/png');
-                        const imgHeight = 80;
-                        
-                        if (yOffset + imgHeight > 280) {
-                            pdf.addPage();
-                            yOffset = 10;
-                        }
-                        
-                        pdf.addImage(imgData, 'PNG', 10, yOffset, 190, imgHeight);
-                        yOffset += imgHeight + 5;
-                    } catch (e) {
-                        console.error('Error capturing chart:', e);
-                    }
-                }
-            }
-
-            // Comments
-            if (dataset.comments) {
-                if (yOffset > 260) {
-                    pdf.addPage();
-                    yOffset = 10;
-                }
-                pdf.setFontSize(9);
-                pdf.text('Opmerkingen:', 10, yOffset);
-                yOffset += 5;
-                const lines = pdf.splitTextToSize(dataset.comments, 190);
-                pdf.text(lines, 10, yOffset);
-                yOffset += lines.length * 4 + 10;
-            }
-
-            yOffset += 5;
-        }
-
-        yOffset += 10;
-    }
-
-    pdf.save(`analytics-rapport-${new Date().toISOString().split('T')[0]}.pdf`);
-    alert('PDF succesvol gegenereerd!');
-}
-
-// ===== LOCAL STORAGE =====
 function saveState() {
-    try {
-        localStorage.setItem('analyticsDashboardState', JSON.stringify(appState));
-    } catch (e) {
-        console.error('Error saving state:', e);
-    }
+    // Sla de chartInstance niet op in localStorage
+    const stateToSave = JSON.parse(JSON.stringify(appState));
+    categoryKeys.forEach(key => {
+        delete stateToSave.categories[key].chartInstance;
+    });
+    localStorage.setItem("analyticsDashboardState", JSON.stringify(stateToSave));
 }
 
 function loadState() {
+    const raw = localStorage.getItem("analyticsDashboardState");
+    if (!raw) return;
     try {
-        const saved = localStorage.getItem('analyticsDashboardState');
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            Object.assign(appState, parsed);
-        }
+        const parsed = JSON.parse(raw);
+        // Merge parsed in appState, behoud chartInstance
+        categoryKeys.forEach(key => {
+            if (parsed.categories[key]) {
+                const currentChartInstance = appState.categories[key].chartInstance;
+                appState.categories[key] = { ...appState.categories[key], ...parsed.categories[key] };
+                appState.categories[key].chartInstance = currentChartInstance;
+            }
+        });
+        console.log("State geladen uit localStorage");
     } catch (e) {
-        console.error('Error loading state:', e);
+        console.error("Fout bij het laden van state uit localStorage", e);
     }
 }
+
+// --- 3. CSV-parsing (Google Analytics exports) ---
+
+/**
+ * Parsed een ruwe Google Analytics CSV tekst.
+ * @param {string} text - De ruwe CSV tekst.
+ * @returns {{header: string[], data: object[]}} De geparste header en data.
+ */
+function parseGoogleAnalyticsCsv(text) {
+    // Gebruik Papa Parse voor robuustere en correctere parsing van komma's in waarden,
+    // maar volg de GA-specifieke logica voor het vinden van de header.
+
+    const rows = text.split(/\r?\n/);
+    let header = [];
+    let headerFound = false;
+    let headerRowIndex = -1;
+
+    // 1. Zoek de header: de eerste niet-lege, niet-commentaar (#) regel met komma's
+    for (let i = 0; i < rows.length; i++) {
+        const line = rows[i].trim();
+        if (line === "" || line.startsWith("#")) continue;
+
+        if (line.includes(",")) {
+            headerRowIndex = i;
+            // Gebruik Papa Parse om de headerrij te parsen
+            const parseResult = Papa.parse(line, { header: false });
+            if (parseResult.data.length > 0 && parseResult.data[0].length > 0) {
+                 // Soms geeft Papa Parse een array van arrays terug, pak de eerste rij
+                header = parseResult.data[0].map(h => h.trim());
+                headerFound = true;
+                break;
+            }
+        }
+    }
+
+    if (!headerFound) {
+        return { header: [], data: [] };
+    }
+
+    // 2. Parse de data (alle rijen ná de header)
+    const dataText = rows.slice(headerRowIndex + 1).join('\n');
+    const parseResult = Papa.parse(dataText, {
+        header: false,
+        skipEmptyLines: true,
+        // Alleen rijen parsen die niet met # beginnen
+        // Papa Parse heeft geen ingebouwde #-commentaar support, dus we filteren later
+    });
+
+    const data = [];
+    if (parseResult.data) {
+        let uniqueIdCounter = Date.now(); // Gebruik timestamp als basis voor unieke ID's
+        for (const rowValues of parseResult.data) {
+             // Controleer of de rij een valide datarij is (niet leeg en niet een commentaarrij)
+             // Omdat we Papa Parse over een deel van het bestand laten lopen,
+             // moeten we alleen nog controleren op GA-specifieke metadata/commentaar die de Papa Parse opties niet vangen.
+            if (rowValues.length === header.length && !String(rowValues[0]).trim().startsWith("#")) {
+                const rowObj = { id: `row-${uniqueIdCounter++}`, data: {}, selected: true };
+                header.forEach((col, i) => {
+                    rowObj.data[col] = rowValues[i] !== undefined ? String(rowValues[i]).trim() : "";
+                });
+                data.push(rowObj);
+            }
+        }
+    }
+
+    return { header, data };
+}
+
+
+/**
+ * Kijkt welke kolommen numerieke data bevatten.
+ * @param {object[]} rows - De datasetrijen.
+ * @returns {string[]} Lijst van kolomnamen die numeriek zijn.
+ */
+function getNumericColumns(rows) {
+    if (rows.length === 0) return [];
+    const allColumns = Object.keys(rows[0].data);
+    const numericColumns = [];
+
+    // Test de eerste 100 rijen om te bepalen of een kolom numeriek is
+    const testRows = rows.slice(0, 100);
+
+    for (const col of allColumns) {
+        // Een kolom is numeriek als minstens één waarde een getal is en
+        // de meerderheid van de waarden (die niet leeg zijn) getallen zijn.
+        // Dit is een heuristiek om dimensies (zoals "Pagina") uit te sluiten.
+        let numericCount = 0;
+        let nonNumericCount = 0;
+
+        for (const row of testRows) {
+            const value = String(row.data[col]).replace(/%/g, '').replace(/,/g, '.'); // % en komma's verwerken
+            if (value === "") continue;
+
+            if (!isNaN(Number(value))) {
+                numericCount++;
+            } else {
+                nonNumericCount++;
+            }
+        }
+
+        // Als er (substantieel) meer numerieke waarden dan niet-numerieke zijn, beschouw het als numeriek.
+        // We stellen een drempel in (bv. 70% van de niet-lege waarden).
+        if (numericCount > 0 && (numericCount / (numericCount + nonNumericCount)) > 0.7) {
+            numericColumns.push(col);
+        }
+    }
+    return numericColumns;
+}
+
+/**
+ * Berekent de totaalrij (som voor numerieke kolommen, 'Totaal' of leeg voor andere).
+ * @param {object[]} rows - De datasetrijen.
+ * @param {string[]} visibleColumns - De kolommen die zichtbaar zijn.
+ * @returns {object} De totaalrij.
+ */
+function computeTotals(rows, visibleColumns) {
+    const totalRow = {};
+    const numericColumns = getNumericColumns(rows);
+
+    // Initialiseer totalen
+    visibleColumns.forEach(col => {
+        if (numericColumns.includes(col)) {
+            totalRow[col] = 0;
+        } else {
+            // Eerste kolom krijgt het label 'Totaal'
+            totalRow[col] = visibleColumns.indexOf(col) === 0 ? "Totaal" : "";
+        }
+    });
+
+    // Bereken de som
+    rows.forEach(row => {
+        visibleColumns.forEach(col => {
+            if (numericColumns.includes(col)) {
+                let value = String(row.data[col]).replace(/%/g, '').replace(/,/g, '.');
+                totalRow[col] += isNaN(Number(value)) ? 0 : Number(value);
+            }
+        });
+    });
+
+    // Formatteer de numerieke totalen
+    visibleColumns.forEach(col => {
+        if (numericColumns.includes(col) && totalRow[col] !== "") {
+            // Rond af op 2 decimalen, of integer als het een geheel getal is
+            const value = totalRow[col];
+            totalRow[col] = Number.isInteger(value) ? value.toLocaleString('nl-NL') : value.toFixed(2).toLocaleString('nl-NL');
+        }
+    });
+
+    return totalRow;
+}
+
+/**
+ * Handle de upload van één of meerdere CSV-bestanden.
+ * @param {string} categoryKey - De categorie waar de CSV's bij horen.
+ * @param {FileList} fileList - De FileList van de input.
+ * @param {boolean} clearExisting - Moeten bestaande rijen gewist worden?
+ */
+async function handleCsvUpload(categoryKey, fileList, clearExisting) {
+    const category = appState.categories[categoryKey];
+    const newRows = [];
+    let newHeader = [];
+    let firstFileName = null;
+
+    if (clearExisting) {
+        category.rows = [];
+    }
+
+    for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        if (file.type !== 'text/csv' && !file.name.toLowerCase().endsWith('.csv')) continue;
+
+        if (firstFileName === null) {
+            firstFileName = file.name;
+        }
+
+        const text = await file.text();
+        const { header, data } = parseGoogleAnalyticsCsv(text);
+
+        if (data.length > 0) {
+            if (newHeader.length === 0) {
+                newHeader = header;
+            } else {
+                // Controleer of de headers consistent zijn (simpele check)
+                if (JSON.stringify(newHeader) !== JSON.stringify(header)) {
+                    console.warn(`Header van ${file.name} is anders dan de eerste CSV. Deze wordt overgeslagen.`);
+                    continue;
+                }
+            }
+            newRows.push(...data);
+        }
+    }
+
+    if (newRows.length > 0) {
+        // Voeg unieke ID's toe en zet de geselecteerd-status
+        const rowsWithState = newRows.map(dataObj => ({
+            id: `row-${categoryKey}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+            data: dataObj,
+            selected: true // Standaard zijn alle nieuwe rijen geselecteerd
+        }));
+
+        category.rows.push(...rowsWithState);
+
+        // Update kolommen en zichtbaarheid (alleen als dit de eerste upload is)
+        if (category.columns.length === 0 || clearExisting) {
+            category.columns = newHeader;
+            category.columnVisibility = newHeader.reduce((acc, col) => {
+                acc[col] = true; // Standaard alles zichtbaar
+                return acc;
+            }, {});
+            category.datasetTitle = firstFileName || category.datasetTitle;
+
+            // Bepaal de eerste numerieke kolom als standaard metriek
+            const numericCols = getNumericColumns(category.rows);
+            category.metricColumn = numericCols.length > 0 ? numericCols[0] : null;
+        }
+
+        saveState();
+        renderAll();
+    }
+}
+
+// --- 5. Rendering & interactie ---
+
+let chartInstances = {}; // Houdt alle Chart.js instanties bij
+
+/**
+ * Render de Chart.js grafiek voor een categorie.
+ * @param {string} categoryKey - De categorie sleutel.
+ */
+function renderChartForCategory(categoryKey) {
+    const category = appState.categories[categoryKey];
+    const chartContainer = document.getElementById(`chart-canvas-${categoryKey}`);
+
+    if (!chartContainer || !category.metricColumn) {
+        if (category.chartInstance) {
+             // Als er geen metriek meer is, maar wel een grafiek, vernietig deze
+            category.chartInstance.destroy();
+            category.chartInstance = null;
+        }
+        return;
+    }
+
+    const selectedRows = category.rows.filter(r => r.selected);
+    const metric = category.metricColumn;
+
+    // Bepaal de X-as: gebruik de eerste dimensiekolom, of anders een index.
+    const dimensionColumns = category.columns.filter(col => !getNumericColumns(category.rows).includes(col));
+    const xColumn = dimensionColumns.length > 0 ? dimensionColumns[0] : null;
+
+    let labels = [];
+    let data = [];
+
+    if (xColumn) {
+        // Gebruik de dimensiekolom als label
+        labels = selectedRows.map(r => r.data[xColumn]);
+        data = selectedRows.map(r => {
+            let val = String(r.data[metric]).replace(/%/g, '').replace(/,/g, '.');
+            return isNaN(Number(val)) ? 0 : Number(val);
+        });
+    } else {
+        // Gebruik een simpele index als label
+        labels = selectedRows.map((_, i) => i + 1);
+        data = selectedRows.map(r => {
+            let val = String(r.data[metric]).replace(/%/g, '').replace(/,/g, '.');
+            return isNaN(Number(val)) ? 0 : Number(val);
+        });
+    }
+
+    if (category.chartInstance) {
+        // Update bestaande grafiek
+        category.chartInstance.data.labels = labels;
+        category.chartInstance.data.datasets[0].data = data;
+        category.chartInstance.data.datasets[0].label = metric;
+        category.chartInstance.options.scales.y.title.text = metric;
+        category.chartInstance.update();
+    } else {
+        // Nieuwe grafiek maken
+        const ctx = chartContainer.getContext('2d');
+        const newChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: metric,
+                    data: data,
+                    borderColor: 'rgb(75, 192, 192)',
+                    tension: 0.1,
+                    pointRadius: 3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: xColumn || 'Record Index'
+                        },
+                        ticks: {
+                            maxRotation: 45,
+                            minRotation: 45
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: metric
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false
+                    }
+                }
+            }
+        });
+        category.chartInstance = newChart;
+    }
+}
+
+/**
+ * Sorteer de rijen in de state.
+ * @param {string} categoryKey - De categorie sleutel.
+ * @param {string} column - De kolom om op te sorteren.
+ */
+function sortData(categoryKey, column) {
+    const category = appState.categories[categoryKey];
+    const numericColumns = getNumericColumns(category.rows);
+
+    let direction = 'asc';
+    if (category.sortColumn === column) {
+        direction = category.sortDirection === 'asc' ? 'desc' : 'asc';
+    }
+
+    category.sortColumn = column;
+    category.sortDirection = direction;
+
+    category.rows.sort((a, b) => {
+        const aVal = a.data[column];
+        const bVal = b.data[column];
+
+        let comparison = 0;
+
+        if (numericColumns.includes(column)) {
+             // Numerieke sortering
+            const numA = Number(String(aVal).replace(/%/g, '').replace(/,/g, '.'));
+            const numB = Number(String(bVal).replace(/%/g, '').replace(/,/g, '.'));
+            if (!isNaN(numA) && !isNaN(numB)) {
+                comparison = numA - numB;
+            } else if (!isNaN(numA)) {
+                 comparison = -1; // Lege/ongeldige numerieke waarden komen achteraan
+            } else if (!isNaN(numB)) {
+                 comparison = 1;
+            } else {
+                 comparison = String(aVal).localeCompare(String(bVal)); // Fallback op string
+            }
+        } else {
+             // Alfabetische sortering
+            comparison = String(aVal).localeCompare(String(bVal));
+        }
+
+        return direction === 'asc' ? comparison : -comparison;
+    });
+
+    saveState();
+    renderCategory(categoryKey);
+}
+
+
+/**
+ * Render de HTML voor één categoriepaneel op basis van de state.
+ * @param {string} categoryKey - De categorie sleutel.
+ */
+function renderCategory(categoryKey) {
+    const category = appState.categories[categoryKey];
+    const container = document.getElementById(`panel-${categoryKey}`);
+
+    if (!container) return;
+
+    const visibleColumns = category.columns.filter(col => category.columnVisibility[col]);
+    const totalRow = category.rows.length > 0 ? computeTotals(category.rows, visibleColumns) : {};
+    const numericColumns = getNumericColumns(category.rows);
+
+    // Bovenste gedeelte van het paneel: Titel, PDF-checkbox
+    let html = `
+        <div class="panel-header">
+            <h2>${category.title}</h2>
+            <label>
+                <input type="checkbox" data-category="${categoryKey}" id="pdf-include-${categoryKey}" ${category.includeInPdf ? 'checked' : ''}>
+                Opnemen in PDF
+            </label>
+        </div>
+    `;
+
+    // CSV upload
+    html += `
+        <div class="file-input-wrapper">
+            <label for="csv-upload-${categoryKey}" class="button">
+                CSV inladen (file)
+                <input type="file" id="csv-upload-${categoryKey}" data-category="${categoryKey}" accept=".csv" multiple style="display: none;">
+            </label>
+            ${category.rows.length > 0 ? `
+                <label for="csv-add-${categoryKey}" class="button">
+                    Week toevoegen (CSV)
+                    <input type="file" id="csv-add-${categoryKey}" data-category="${categoryKey}" data-mode="add" accept=".csv" multiple style="display: none;">
+                </label>
+            ` : ''}
+        </div>
+    `;
+
+    if (category.rows.length > 0) {
+        // Instellingen: Titel, Kolom-instellingen
+        html += `
+            <div class="settings-section">
+                <h3>Dataset Instellingen</h3>
+                <p>
+                    <label>Dataset-titel:
+                        <input type="text" data-category="${categoryKey}" id="dataset-title-${categoryKey}" value="${category.datasetTitle}" style="width: 300px;">
+                    </label>
+                </p>
+
+                <h4>Kolom-instellingen (Zichtbaarheid)</h4>
+                <div class="column-visibility-list">
+                    ${category.columns.map(col => `
+                        <label>
+                            <input type="checkbox" data-column="${col}" data-category="${categoryKey}" class="col-visibility-toggle" ${category.columnVisibility[col] ? 'checked' : ''}>
+                            ${col}
+                        </label>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+
+        // Tabel
+        html += `
+            <div class="data-table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>PDF/Grafiek</th>
+                            ${visibleColumns.map(col => {
+                                const isSorting = category.sortColumn === col;
+                                const indicator = isSorting ? (category.sortDirection === 'asc' ? '▲' : '▼') : '';
+                                return `<th data-column="${col}" class="sortable-header">
+                                    ${col} <span class="sort-indicator">${indicator}</span>
+                                </th>`;
+                            }).join('')}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="total-row">
+                            <td></td>
+                            ${visibleColumns.map(col => `<td>${totalRow[col] || ''}</td>`).join('')}
+                        </tr>
+                        ${category.rows.map(row => `
+                            <tr>
+                                <td>
+                                    <input type="checkbox" data-row-id="${row.id}" data-category="${categoryKey}" class="row-select-checkbox" ${row.selected ? 'checked' : ''}>
+                                </td>
+                                ${visibleColumns.map(col => `<td>${row.data[col]}</td>`).join('')}
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+
+        // Grafiek
+        const availableMetrics = numericColumns;
+
+        html += `
+            <div class="chart-container">
+                <h3>Grafiek Preview</h3>
+                <div class="chart-controls">
+                    <label>Y-as Metriek:
+                        <select id="chart-metric-select-${categoryKey}" data-category="${categoryKey}">
+                            ${availableMetrics.map(col => `
+                                <option value="${col}" ${category.metricColumn === col ? 'selected' : ''}>${col}</option>
+                            `).join('')}
+                            ${availableMetrics.length === 0 ? '<option value="" disabled selected>Geen numerieke kolommen</option>' : ''}
+                        </select>
+                    </label>
+                </div>
+                <div class="chart-canvas">
+                    <canvas id="chart-canvas-${categoryKey}"></canvas>
+                </div>
+            </div>
+        `;
+    } else {
+        html += '<p>Upload een Google Analytics CSV om te beginnen.</p>';
+    }
+
+    container.innerHTML = html;
+
+    // Herteken de grafiek na het inbrengen van de HTML
+    if (category.rows.length > 0) {
+        renderChartForCategory(categoryKey);
+    }
+}
+
+/**
+ * Render alle categorieën en hecht event handlers.
+ */
+function renderAll() {
+    categoryKeys.forEach(key => {
+        renderCategory(key);
+        attachCategoryEventHandlers(key);
+    });
+}
+
+/**
+ * Hecht event handlers aan een categoriepaneel.
+ * @param {string} categoryKey - De categorie sleutel.
+ */
+function attachCategoryEventHandlers(categoryKey) {
+    const container = document.getElementById(`panel-${categoryKey}`);
+    if (!container) return;
+
+    // PDF Include checkbox
+    container.querySelector(`#pdf-include-${categoryKey}`)?.addEventListener('change', (e) => {
+        appState.categories[categoryKey].includeInPdf = e.target.checked;
+        saveState();
+    });
+
+    // CSV Upload (Nieuwe dataset)
+    container.querySelector(`#csv-upload-${categoryKey}`)?.addEventListener('change', (e) => {
+        handleCsvUpload(categoryKey, e.target.files, true);
+    });
+
+    // CSV Toevoegen (Week toevoegen)
+    container.querySelector(`#csv-add-${categoryKey}`)?.addEventListener('change', (e) => {
+        handleCsvUpload(categoryKey, e.target.files, false);
+    });
+
+    // Dataset Titel
+    container.querySelector(`#dataset-title-${categoryKey}`)?.addEventListener('input', (e) => {
+        appState.categories[categoryKey].datasetTitle = e.target.value;
+        saveState();
+    });
+
+    // Kolom Zichtbaarheid
+    container.querySelectorAll('.col-visibility-toggle').forEach(checkbox => {
+        checkbox.addEventListener('change', (e) => {
+            const col = e.target.dataset.column;
+            appState.categories[categoryKey].columnVisibility[col] = e.target.checked;
+            saveState();
+            renderCategory(categoryKey); // Rerender om de tabel en grafiek aan te passen
+        });
+    });
+
+    // Rij Selectie (PDF/Grafiek)
+    container.querySelectorAll('.row-select-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', (e) => {
+            const rowId = e.target.dataset.rowId;
+            const row = appState.categories[categoryKey].rows.find(r => r.id === rowId);
+            if (row) {
+                row.selected = e.target.checked;
+                saveState();
+                renderChartForCategory(categoryKey); // Alleen grafiek updaten
+            }
+        });
+    });
+
+    // Sortering
+    container.querySelectorAll('.sortable-header').forEach(header => {
+        header.addEventListener('click', (e) => {
+            const column = e.currentTarget.dataset.column;
+            sortData(categoryKey, column);
+        });
+    });
+
+    // Grafiek Metriek Selectie
+    container.querySelector(`#chart-metric-select-${categoryKey}`)?.addEventListener('change', (e) => {
+        appState.categories[categoryKey].metricColumn = e.target.value;
+        saveState();
+        renderChartForCategory(categoryKey);
+    });
+}
+
+// --- 6. PDF-export ---
+
+async function generatePdf() {
+    // Gebruik de ES module van jsPDF, die is ge-exposed als window.jspdf
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: "p", unit: "pt", format: "a4" });
+
+    const categoryOrder = ["acquisition", "behaviour", "conversion", "loyalty"];
+
+    let firstPage = true;
+    for (const key of categoryOrder) {
+        const cat = appState.categories[key];
+        if (!cat.includeInPdf || cat.rows.length === 0) continue;
+
+        if (!firstPage) {
+            doc.addPage();
+        }
+        firstPage = false;
+
+        // Zoek het DOM-element van dit categorie-paneel
+        const panelElement = document.getElementById(`panel-${key}`);
+
+        // html2canvas rendert de huidige DOM-staat naar een canvas
+        const canvas = await html2canvas(panelElement, {
+             // Zorg dat de tabel-scrollbare inhoud volledig wordt meegenomen
+            allowTaint: true,
+            useCORS: true,
+            // Scroll de container naar boven voor de screenshot
+            onclone: (doc) => {
+                const tableContainer = doc.getElementById(`panel-${key}`).querySelector('.data-table-container');
+                if (tableContainer) {
+                    tableContainer.scrollTop = 0;
+                }
+            }
+        });
+
+        const imgData = canvas.toDataURL("image/png");
+
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        
+        // Bereken de ratio om het canvas op de pagina te passen
+        const padding = 40; // 20pt aan elke kant
+        const maxImageWidth = pageWidth - padding;
+        const maxImageHeight = pageHeight - padding;
+
+        const ratioX = maxImageWidth / canvas.width;
+        const ratioY = maxImageHeight / canvas.height;
+        const ratio = Math.min(ratioX, ratioY); // Behoud aspect ratio en zorg dat het past
+
+        const imgWidth = canvas.width * ratio;
+        const imgHeight = canvas.height * ratio;
+
+        doc.addImage(imgData, "PNG",
+            (pageWidth - imgWidth) / 2, // X-positie (gecentreerd)
+            padding / 2, // Y-positie (kleine marge bovenaan)
+            imgWidth,
+            imgHeight
+        );
+    }
+
+    if (!firstPage) {
+         // Alleen opslaan als er daadwerkelijk content is toegevoegd
+        doc.save("ga-dashboard-rapport.pdf");
+    } else {
+        alert("Geen categorieën geselecteerd voor de PDF of geen data geladen.");
+    }
+}
+
+
+// --- 5. Initialisatie ---
+
+function init() {
+    loadState();
+    renderAll();
+    document.getElementById('generate-pdf-btn').addEventListener('click', generatePdf);
+}
+
+// Start de app
+init();
